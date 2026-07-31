@@ -1,0 +1,700 @@
+# Service Pack Design Document
+
+This document is the living source of truth for **luaris-mcp service packs**.
+
+Service packs are **external user-managed inputs** loaded from a services directory (`SVC_DIR`). The luaris-mcp core binary is service-agnostic and provides only base runtime + raw primitives.
+
+Core architecture lives in [APP-DESIGN.mkd](../APP-DESIGN.mkd).
+
+---
+
+## 1. What Is a Service Pack?
+
+A service pack is a directory `SVC_DIR/<service>/` that contributes one or more Lua namespaces (typically rooted at `<service>.*`) to the luaris-mcp Lua runtime.
+
+A service pack:
+
+- is loaded from the filesystem (not embedded in the luaris-mcp binary)
+- should be stateless (no hidden global state required to call functions)
+- declares `__schema` metadata so the core `capabilities.*` API can expose function signatures/types/examples
+- may be CLI-based (using `_raw.cli.text`, `_raw.cli.json`, `_raw.cli.start_text`, `_raw.cli.start_json`), HTTP-based (using `_raw.http.request`, `_raw.http.list`, `_raw.http.start_request`), or GraphQL-based (using `_raw.graphql.request`, `_raw.graphql.list`, `_raw.graphql.start_request`)
+- may use the scratch Virtual FS (VFS) + blob handles for binary-safe workflows (see `_raw.blob.*`, `_raw.vfs.*`, and convenience `vfs.*`)
+
+---
+
+## 2. Directory Layout (Contract)
+
+Each service pack lives under:
+
+```
+SVC_DIR/
+  <service>/
+    src/
+      init.lua
+      *.lua
+    examples/
+      <service>.lua   # service-level examples (common entry point)
+      *.lua           # namespace-level examples (one file per namespace; each file returns a single runnable string)
+    tests/
+      *_test.lua
+    README.md            (optional)
+```
+
+### 2.1 `src/init.lua` (Required)
+
+`src/init.lua` must:
+
+- create the public namespace table (e.g., `myservice = { ... }`)
+- require/load any internal helpers needed by the pack
+- attach `__schema` tables to exported namespaces (e.g., `myservice.resource.__schema = { ... }`)
+- optionally define `myservice.__intro` as a short human-readable intro appended to the MCP initialize instructions under **Available service integrations**
+- optionally define `myservice.__allowed_cli_commands` as the explicit list of CLI commands the service is allowed to execute
+- capture raw primitives into locals (upvalues) at load time
+
+Capturing raw primitives prevents user code from monkey-patching `_raw` transport primitives after load and ensures consistent behavior:
+
+```lua
+-- src/init.lua
+myservice = { resource = {} }
+
+myservice.__intro = [[
+Use this service for MyService operations.
+Prefer narrow scope and structured outputs.
+]]
+
+myservice.__allowed_cli_commands = { "myservice-cli" }
+
+-- Capture raw primitives as upvalues
+local raw_cli_json = _raw.cli.json
+local raw_http_request = _raw.http.request
+
+-- Do not build execution-mode guards in Lua; Go core enforces read-only vs mutating.
+```
+
+### 2.2 Internal Modules
+
+Use internal modules for shared logic, but keep them private:
+
+- prefer filenames like `_client.lua`, `_util.lua`
+- do not export them to `_G`
+
+---
+
+## 3. Load Order (What the Core Does)
+
+The core runtime loads Lua in a deterministic order:
+
+1. Go raw primitives are available (`_raw.exec_mode`, `_raw.cli.text`, `_raw.cli.json`, `_raw.cli.start_text`, `_raw.cli.start_json`, `_raw.http.request`, `_raw.http.list`, `_raw.http.start_request`, `_raw.url.query_escape`, `_raw.url.query_unescape`, `_raw.url.path_escape`, `_raw.url.path_unescape`, `_raw.graphql.request`, `_raw.graphql.list`, `_raw.graphql.start_request`, `_raw.task.status`, `_raw.task.result`, `_raw.task.cancel`, `_raw.task.wait`, `_raw.secrets.env`, `_raw.secrets.command`, `_raw.auth.basic`, `_raw.auth.bearer`, `_raw.test.start_task`, `_raw.store.put`, `_raw.store.get`, `_raw.store.delete`, `_raw.store.keys`, `_raw.store.len`, `_raw.store.clear`, `_raw.store.cache_set`, `_raw.store.cache_get`, `_raw.blob.from_cli`, `_raw.blob.from_http`, `_raw.blob.len`, `_raw.vfs.mkdirp`, `_raw.vfs.write_text`, `_raw.vfs.write_blob`, `_raw.vfs.read_text`, `_raw.vfs.stat`, `_raw.vfs.list`, `_raw.vfs.to_text`, `_raw.vfs.expose`)
+2. Embedded preload Lua executes (helpers, store, task, vfs, capabilities)
+3. Service packs load:
+   - all `<service>/src/init.lua` files (alphabetically by service)
+   - all other `<service>/src/**/*.lua` files (alphabetically by path)
+4. The core captures security validators to prevent runtime overrides
+5. User code executes (REPL or MCP). In REPL and `./luaris-mcp test`, direct `_raw.*` calls are allowed for debugging and service-pack tests.
+
+Implications for pack authors:
+
+- `init.lua` should create the namespace early so other files can safely attach functions
+- keep side effects minimal (avoid network calls at load time)
+
+---
+
+## 4. API Design Rules
+
+### 4.1 Stateless Functions
+
+Service functions must be stateless and explicit about their inputs:
+
+- pass identifiers/config explicitly (don’t rely on hidden globals)
+- return plain Lua tables (no metatables)
+
+Recommended return conventions (standardized by schema contracts):
+
+- Non-list functions: `(result, err)` where `err == nil` on success and `err` is a structured table on failure (see `core.result` / `core.error` below)
+- List functions: return iterators (see `core.iter` below)
+
+### 4.2 Iterator-Only Lists
+
+List operations should return iterators that may lazily paginate.
+
+Materialize with `helpers.collect(iterator, opts)`:
+
+- `limit` (max items)
+- `max_pages` (safety guard)
+- `filter` / `transform`
+
+Additional iterator helpers (often useful for agents):
+
+- `helpers.first(iterator)` (first item or `nil`)
+- `helpers.take(iterator, n)` (materialize N items)
+- `helpers.page(iterator, page_num, page_size)` (materialize a page; 1-indexed)
+
+Additional safe-access helper (often useful for agents working with API-shaped tables):
+
+- `helpers.get_in(obj, path, default?)` (nil-safe nested lookup; `path` is `{"a","b"}` or `"a.b"`)
+
+Iterator contract (required):
+
+- Iterators MUST be generic-for compatible and consumable like:
+
+```lua
+local ok, err = pcall(function()
+  for item, meta in iterator do
+    -- use item
+    -- meta is optional pagination diagnostics (may be nil)
+  end
+end)
+
+if not ok then
+  -- mid-stream transport failures throw
+  error(err)
+end
+```
+
+- Termination: iterator returns `nil` as the first return value (`item == nil`)
+- Error behavior: iterator MUST throw (via `error(...)`) on mid-stream transport failures
+
+---
+
+## 5. Execution Modes (Read-only vs Mutating)
+
+The core enforces execution mode:
+
+- **Read-only**: safe-by-default tool for broad exposure
+- **Mutating**: explicit opt-in tool for writes; may require operator confirmation
+
+Service-pack Lua must not implement any execution-mode validation (no `_raw.exec_mode()` branching, no Lua-side allow/deny lists). The only Lua-side mutation signal is `__schema.functions[].mutating = true`; Go core uses schema metadata to wrap/enforce mutating calls. Raw primitives are internal-only and must be used only from schema-backed public wrappers.
+
+### 5.1 Mark Mutating Functions in Schema
+
+Every mutating function must be marked:
+
+- `__schema.functions[].mutating = true`
+
+This allows:
+
+- correct discovery output via `capabilities.*`
+- function-level gating (where enforced)
+
+### 5.2 Transport and Mutation Policy
+
+Transport details are **not** the source of truth for mutating policy.
+
+- Do **not** pass extra mutation markers such as `opts.mutating = true`
+- Do **not** rely on transport shape (CLI verb, HTTP method, GraphQL operation type) as the mutating declaration
+- Declare mutation only once: `__schema.functions[].mutating = true`
+
+Raw primitives are internal implementation tools. Go derives mutating policy from the enclosing schema-backed public wrapper, not from raw transport arguments.
+
+### 5.3 Refresh Pattern
+
+For mutations, prefer a “refresh” behavior:
+
+1. perform the action (POST/PUT/PATCH/DELETE)
+2. re-fetch via GET
+3. return the updated resource table
+
+### 5.4 Task-Based Async (Delayed / Background Execution)
+
+Some expensive read-only operations may be exposed as **delayed/background tasks**.
+
+Rules:
+
+- Service packs must not run Lua in the background; background work runs in Go and returns a **Task handle** (`task_id`, a string).
+- Starting async work is done via `_raw.cli.start_text`, `_raw.cli.start_json`, or `_raw.http.start_request` (see Transport Primitives below).
+- Async start calls snapshot the caller's remaining execution deadline at start time. Any transport/provider timeout inside the task is capped by that external deadline snapshot, but the task is not cancelled just because the start call already returned.
+- Polling and retrieving results is done via the core `async_task.*` API:
+  - `async_task.status(task_id) -> (status, err)`
+  - `async_task.result(task_id, opts?) -> (result, err)` (must return `nil, {code="NOT_READY", ...}` while running)
+  - `async_task.wait(task_id, timeout_ms?) -> (result, err)`
+    - This wait timeout is separate from the task's runtime deadline.
+
+Schema conventions for async-returning service functions:
+
+- Return a typed task id string:
+  - `returns_typed = { { name = "task_id", type = "string" } }`
+- Use the async-start contract:
+  - `returns_contract = "core.async.result"`
+
+Note: The async mechanism is standardized (task-based) and is described by the `core.async.result` contract.
+
+---
+
+## 6. Capabilities and `__schema` Metadata
+
+`capabilities.*` is implemented in core Lua and discovers `__schema` tables attached to namespaces.
+
+Development helper:
+
+- `capabilities.invalidate() -> (true, nil)` clears the internal discovery cache so newly-installed namespaces/functions (e.g., from local store dynamic snippets) show up in `capabilities.*` without recreating the Lua state.
+
+### 6.1 Service API Design Philosophy
+- Learn Once, Apply Everywhere - 4 fundamental patterns cover all operations
+- Compact & Clear - Minimal tokens, maximum clarity
+- Predictable - If you've used one namespace, you know them all
+- Complete - Bidirectional navigation, no missing operations
+
+### 6.2 Minimal Schema Shape
+
+Schema is contract-driven:
+
+- Non-iterator functions MUST declare `returns_contract = "core.result"`
+- Iterator functions MUST declare `returns_contract = "core.iter"` and `yields = "<TypeName>"`
+
+These contracts are published by the core in `capabilities.ai_context().contracts` (so a caller can learn semantics without reading implementations).
+
+Note: `capabilities.ai_context()` uses these same contract keys (`core.iter`, `core.result`, `core.error`).
+
+A typical (non-iterator) schema table:
+
+```lua
+myservice.resource.__schema = {
+  summary = "Resource operations",
+  functions = {
+    {
+      name = "get",
+      signature = "(id)",
+      description = "Fetch a resource by id.",
+      mutating = false,
+      returns_contract = "core.result",
+      params = {
+        { name = "id", type = "string", optional = false },
+      },
+      returns_typed = {
+        { name = "result", type = "Resource" },
+        { name = "err", type = "core.error|nil" },
+      },
+      examples = [[
+        local obj, err = myservice.resource.get("123")
+        if err then error(err.message or tostring(err)) end
+        return obj
+      ]],
+    },
+  },
+  types = {
+    Resource = { shape = "{id:string, name:string, ...}" },
+  },
+  -- Namespace-level examples are a single runnable string (optional).
+  -- Method-level examples live inline on the function schema as shown above.
+  examples = [[
+    local obj, err = myservice.resource.get("123")
+    if err then error(err.message or tostring(err)) end
+    return obj
+  ]],
+}
+```
+
+A typical iterator schema table:
+
+```lua
+myservice.resource.__schema = {
+  summary = "Resource operations",
+  functions = {
+    {
+      name = "list",
+      signature = "(opts?)",
+      description = "List resources (lazy iterator).",
+      mutating = false,
+      returns_contract = "core.iter",
+      yields = "Resource",
+      params = {
+        { name = "opts", type = "table", optional = true },
+      },
+      returns_typed = {
+        { name = "iterator", type = "Iterator" },
+      },
+    },
+  },
+  types = {
+    Resource = { shape = "{id:string, name:string, ...}" },
+  },
+}
+```
+Notes:
+
+- `usage_hint` is optional and intended for compact AI-facing guidance only; it is surfaced only via `capabilities.ai_context().hints.namespaces`
+- `usage_hint` is valid only on top-level public namespaces (for example `gitlab`, `jira`, `vfs`), not nested namespaces like `gitlab.job`
+- Example root-level use:
+  ```lua
+  myservice.__schema = {
+    namespace = "myservice",
+    service = "myservice",
+    usage_hint = "Short usage caveat or behavioral reminder.",
+    functions = { ... },
+  }
+  ```
+- keep schemas close to the user-facing Lua wrapper surface
+- prefer named types with compact `shape` strings (3–8 keys) to keep discovery output small
+- examples should be short, copy/paste runnable, and sufficient to show the intended call shape
+- avoid long prose, test scaffolding, or execution gates in example code unless they are essential to the example itself
+
+### 6.3 Example Placement (Namespace vs Method)
+
+- Service-level examples live in `examples/<service>.lua` (file name matches the service directory name) and must be a single runnable Lua snippet (the file contents are returned as a string).
+  - Access via: `capabilities.examples("<service>")`
+- Namespace-level examples live in `examples/<namespace>.lua` and must be a single runnable Lua snippet (the file contents are returned as a string).
+  - For a service `jira`, `examples/issue.lua` maps to `capabilities.examples("jira.issue")`.
+  - Nested namespaces may be represented with directories (e.g. `examples/mr.lua` for `gitlab.mr`).
+- Method-level examples stay inline on the schema: `__schema.functions[method].examples` must be a single runnable string (use a Lua multiline literal like `[[...]]`).
+
+Example style guidance:
+
+- Keep examples focused and compact; include only the minimum setup needed to understand the call.
+- Examples are documentation loaded by `capabilities.examples(...)`; they are not executed automatically by `./luaris-mcp test` unless a test explicitly loads and runs them.
+- Do not add read-only fallback branches, `run_*` gates, or other test-phase protections unless the example genuinely needs them.
+- For mutating APIs, it is fine for the example to show the direct mutating call when that is the clearest usage.
+
+Lookup order:
+
+- `capabilities.examples("namespace.fn.method")`:
+  1. inline method example (`__schema.functions[].examples`)
+  2. namespace-level example file (`examples/<namespace>.lua`)
+  3. service-level example file (`examples/<service>.lua`)
+  4. otherwise `nil`
+- `capabilities.examples("namespace")` returns the namespace-level (or service-level) cached example if present.
+
+Non-blocking warnings:
+
+- Emitted when a cached example exists without a matching schema.
+- Set `LUARIS_MCP_WARN_MISSING_EXAMPLES=1` to also warn when a method has neither an inline example nor a namespace-level fallback.
+
+---
+
+## 7. Transport Primitives
+
+### 7.0 Complete Raw Primitive Surface (Core)
+
+For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `_raw.*` calls are also allowed in the local REPL and `./luaris-mcp test` for debugging and service-pack tests.
+
+- Execution mode:
+  - `_raw.exec_mode() -> "readonly"|"mutating"` (introspection only; do not use for Lua-side permission checks)
+- CLI (sync):
+  - `_raw.cli.text(tool, args, opts?) -> (stdout|nil, err)`
+  - `_raw.cli.json(tool, args, opts?) -> (value|nil, err)`
+  - `args` is an array-like Lua table of strings/numbers/bools; `opts` supports `{timeout:number(seconds)?, cwd:string?}`
+  - When `opts.timeout` is omitted, CLI execution inherits the active caller deadline and only falls back to the shared 60s default when no caller deadline exists.
+- CLI (async):
+  - `_raw.cli.start_text(tool, args, opts?) -> (task_id|nil, err)`
+  - `_raw.cli.start_json(tool, args, opts?) -> (task_id|nil, err)`
+- HTTP (sync):
+  - `_raw.http.request(method, base_url, path, opts?) -> (value|nil, err)`
+  - HTTP/GraphQL transport inherits the active caller deadline end-to-end (including auth resolution and retries) and only falls back to the shared 60s default when no caller deadline exists.
+  - `opts` supports `{query:table?, headers:table?, auth:AuthRef?, body:any?}`
+- HTTP (iter):
+  - `_raw.http.list(method, base_url, path, opts) -> iterator` (throws mid-stream on transport/decoding failures)
+  - `opts.pagination` may also include `missing_items_as_empty:boolean` to treat a missing `items_path` field as an empty page/result instead of an extraction error. Use this only for APIs that legitimately omit the collection field on empty results.
+- HTTP (async):
+  - `_raw.http.start_request(method, base_url, path, opts?) -> (task_id|nil, err)`
+- URL helpers:
+  - `_raw.url.query_escape(s) -> escaped_string`
+  - `_raw.url.query_unescape(s) -> (unescaped|nil, err)`
+  - `_raw.url.path_escape(s) -> escaped_string`
+  - `_raw.url.path_unescape(s) -> (unescaped|nil, err)`
+- GraphQL (sync):
+  - `_raw.graphql.request(base_url, document, opts?) -> (data|nil, err)`
+  - `opts` supports `{path:string?, variables:table?, operation_name:string?, headers:HeaderList|table?, auth:AuthRef?, response_mode:"data"|"envelope"?}`
+  - header lists may be ordered arrays like `{ {name="X-ExperimentalApi", value="beta-1"}, {name="X-ExperimentalApi", value="beta-2"} }`
+- GraphQL (iter):
+  - `_raw.graphql.list(base_url, document, opts) -> iterator` (throws mid-stream on transport/decoding/GraphQL failures)
+  - supports `pagination.kind = "cursor"` or `"offset"`
+- GraphQL (async):
+  - `_raw.graphql.start_request(base_url, document, opts?) -> (task_id|nil, err)`
+- Store (Go KV):
+  - `_raw.store.put(type, key, value, opts?) -> (true|nil, err)`
+  - `_raw.store.get(type, key) -> (value|nil, err)`
+  - `_raw.store.delete(type, key) -> (deleted|nil, err)`
+  - `_raw.store.keys(type) -> (keys|nil, err)`
+  - `_raw.store.len(type) -> (count|nil, err)`
+  - `_raw.store.clear(type) -> (true|nil, err)`
+  - `_raw.store.cache_set(key, value, ttl_s) -> (true|nil, err)`
+  - `_raw.store.cache_get(key) -> (value|nil, err)`
+  - Note: High-level `store.save_snippet(...)` is also available globally for user convenience
+- Secrets (raw):
+  - `_raw.secrets.env(name) -> (SecretRef|nil, err)`
+  - `_raw.secrets.command(spec) -> (SecretRef|nil, err)`
+    - `spec`: `{ tool:string, args:string[]?, timeout:number(seconds)?, ttl_s:number? }`
+- Auth (raw):
+  - `_raw.auth.basic(user_ref, pass_ref) -> (AuthRef|nil, err)`
+  - `_raw.auth.bearer(token_ref) -> (AuthRef|nil, err)`
+- Tasks (raw):
+  - `_raw.task.status(task_id) -> (status|nil, err)`
+  - `_raw.task.result(task_id) -> (result|nil, err)`
+  - `_raw.task.cancel(task_id) -> (success:boolean, err|nil)`
+  - `_raw.task.wait(task_id, timeout_ms?) -> (result|nil, err)`
+- Ingest (core/internal):
+  - `_raw.ingest.get(token) -> (text|nil, err)`
+  - Used by the core `ingest.get(token)` wrapper to read UTF-8 text previously uploaded into the current MCP session via `luaris-mcp ingest`.
+  - Not intended as a general service-pack transport primitive.
+- Test helper (test/validation only):
+  - `_raw.test.start_task(delay_ms, result) -> (task_id|nil, err)`
+
+### 7.0.1 Blob handles (binary-safe)
+
+The core also exposes **opaque blob handles** for binary data capture. Blob bytes are never surfaced to Lua as strings; they can only be written to VFS via `_raw.vfs.write_blob`.
+
+- `_raw.blob.from_cli(tool, args, opts?) -> (blob|nil, err)`
+  - Captures **stdout bytes** from a CLI invocation.
+  - `opts`: `{ timeout?: number(seconds), cwd?: string, max_bytes?: number }` (default `max_bytes` is 200MB).
+- `_raw.blob.from_http(method, base_url, path, opts?) -> (blob|nil, err)`
+  - Captures **response body bytes** from an HTTP request.
+  - `opts`: `{ query?:table, headers?:table, auth?:AuthRef, max_bytes?: number, timeout?: number(seconds) }`
+  - Note: this does **not** JSON-decode.
+- `_raw.blob.len(blob) -> (n|nil, err)`
+
+### 7.0.2 Virtual filesystem (VFS)
+
+VFS is scratch-only storage backed by OS temp dir, scoped **per Lua runtime** (for MCP this typically means per live session). Raw VFS primitives are internal-only like the rest of `_raw.*`; mutating policy still comes from the enclosing schema-backed public wrapper.
+
+Raw primitives:
+
+- `_raw.vfs.mkdirp(path) -> (true|nil, err)`
+- `_raw.vfs.write_text(path, text, opts?) -> (info|nil, err)`
+  - `opts`: `{ overwrite?: boolean }` (default true)
+- `_raw.vfs.write_blob(path, blob, opts?) -> (info|nil, err)`
+  - `opts`: `{ overwrite?: boolean }` (default true)
+- `_raw.vfs.read_text(path, opts?) -> (text|nil, err)`
+  - Text-only, with a hard max regardless of caller opts.
+  - `opts`: `{ max_bytes?: number, offset?: number }`
+- `_raw.vfs.stat(path) -> (info|nil, err)`
+- `_raw.vfs.list(path, opts?) -> (entries|nil, err)`
+  - `opts`: `{ recursive?: boolean, max_entries?: number }`
+- `_raw.vfs.to_text(path, opts?) -> (result|nil, err)`
+  - Zip-first converter for artifact inspection. Extracts to an `extracted/...` dir and returns a manifest + text previews.
+- `_raw.vfs.expose(paths) -> (result|nil, err)`
+  - Create a fresh OS temp directory for exposed host copies, copy one or more VFS files into it, and return host paths for the copied files.
+  - Files only; directories are rejected. Any missing/invalid file fails the whole call. Basename collisions are auto-renamed within the exposure bundle.
+
+Convenience wrappers (core preload):
+
+- `vfs.mkdirp(path)`
+- `vfs.ensure_parent(path)`
+- `vfs.write_text(path, text, opts?)`
+- `vfs.read_text(path, opts?)`
+- `vfs.ls(path, opts?)`
+- `vfs.stat(path)`
+- `vfs.to_txt(path, opts?)`
+- `vfs.expose(paths)`
+
+Service packs should generally prefer stable core primitives when available (for example `_raw.secrets.*`, `_raw.auth.*`, and `async_task.status`/`async_task.result`/`async_task.wait`).
+
+### 7.1 CLI-based Packs
+
+Use `_raw.cli.text`, `_raw.cli.json`, `_raw.cli.start_text`, and `_raw.cli.start_json` for safe CLI execution.
+
+Guidelines:
+
+- always use structured output when possible (JSON)
+- when you specify a transport timeout, treat it as an upper bound on that transport call; the caller's deadline still wins if it is shorter
+- never shell out via ad-hoc `os.execute` or `io.popen`
+- declare every approved CLI binary in `<service>.__allowed_cli_commands`; the default policy is deny-all
+
+Synchronous execution uses:
+
+- `_raw.cli.json(tool, args, opts?) -> (value, err?)`
+- `_raw.cli.text(tool, args, opts?) -> (text, err?)`
+
+Delayed execution (task-based async) uses the `_raw.cli.start_*` variants:
+
+- `_raw.cli.start_json(tool, args, opts?) -> task_id`
+- `_raw.cli.start_text(tool, args, opts?) -> task_id`
+
+### 7.2 HTTP-based Packs
+
+Use `_raw.http.request`, `_raw.http.list`, and `_raw.http.start_request`.
+
+Guidelines:
+
+- prefer returning decoded tables and structured errors
+- use `_raw.secrets.*` and `_raw.auth.*` for credentials (do not read env vars directly)
+
+Synchronous execution uses:
+
+- `_raw.http.request(method, base_url, path, opts?) -> (resp, err?)`
+
+Delayed execution (task-based async) uses:
+
+- `_raw.http.start_request(method, base_url, path, opts?) -> task_id`
+
+### 7.3 GraphQL-based Packs
+
+Use `_raw.graphql.request`, `_raw.graphql.list`, and `_raw.graphql.start_request` when the upstream API is GraphQL-shaped rather than REST-shaped.
+
+Guidelines:
+
+- treat `_raw.graphql.*` as a service-implementation primitive, not a user-facing API contract
+- prefer `_raw.graphql.request` for one-shot queries and `_raw.graphql.list` for connection/offset pagination
+- use ordered header lists when the upstream API requires duplicate header names
+- public wrappers around GraphQL mutations must still set `__schema.functions[].mutating = true`; do not add Lua-side `_raw.exec_mode()` checks or extra raw-layer mutation markers
+
+---
+
+## 8. Pagination Patterns
+
+### 8.1 Offset/Page Pagination (Typical)
+
+If your API uses numeric pages:
+
+- implement a list iterator that requests pages lazily
+- stop when a page is empty or when the API indicates no next page
+
+### 8.2 Token Pagination (Cursor-based)
+
+If your API uses opaque next-page tokens, prefer `_raw.http.list` when available.
+
+General pattern:
+
+```lua
+function myservice.resource.list(opts)
+  opts = opts or {}
+
+  return _raw.http.list("GET", base_url, "/v1/resources", {
+    auth = auth,
+    query = { filter = opts.filter },
+    pagination = {
+      kind = "token",
+      items_path = "items",
+      token_param = "pageToken",
+      limit_param = "pageSize",
+      next_token_path = "nextPageToken",
+    },
+    limit = opts.limit,
+    per_page = opts.per_page,
+  })
+end
+```
+
+If the API may return a successful empty response **without** the collection field (for example no `items` / `timeSeries` key at all), opt in explicitly:
+
+```lua
+return _raw.http.list("GET", base_url, "/v1/resources", {
+  pagination = {
+    kind = "token",
+    items_path = "items",
+    token_param = "pageToken",
+    limit_param = "pageSize",
+    next_token_path = "nextPageToken",
+    missing_items_as_empty = true,
+  },
+})
+```
+
+Guidance:
+- use `missing_items_as_empty = true` only when the upstream API documents or consistently exhibits "missing field means empty result"
+- do **not** use it to paper over wrong `items_path` values or malformed responses
+- if the field exists but is not an array, iterator extraction should still fail
+
+---
+
+## 9. Errors
+
+Prefer returning structured errors as tables:
+
+- `code`: stable machine-readable identifier
+- `message`: human-readable
+- `context`: inputs/fields that help debugging
+- `hint`: optional remediation guidance for callers/agents
+- `recoverable`: whether retry is reasonable
+
+When wrapping transport errors (CLI/HTTP), it is acceptable to preserve lower-level diagnostics in the **raw/internal** error long enough for service-side classification and debugging, but public/agent-facing errors should not expose transport details such as `tool`, `args`, `stderr`, `stdout`, or `exit_code` directly.
+
+If your service needs public error translation, use an internal helper/policy layer (for example `errutil`) to map raw upstream failures to stable public errors before returning them.
+
+For iterator failures, it’s acceptable to throw (error) when the next page fetch fails, but avoid stringifying raw upstream errors into the thrown message. Prefer throwing a structured public error instead.
+
+---
+
+## 10. Secrets and Auth
+
+Use the core raw secret/auth primitives for credentials.
+
+- Secret sources live under `_raw.secrets.*`
+- Auth constructors live under `_raw.auth.*`
+- Both return opaque references that are only resolved during transport calls in Go
+
+Examples:
+
+```lua
+local token = _raw.secrets.env("MY_TOKEN")
+local auth = _raw.auth.bearer(token)
+
+local resp, err = _raw.http.request("GET", base_url, path, { auth = auth })
+```
+
+Command-backed short-lived token example:
+
+```lua
+local token = _raw.secrets.command({
+  tool = "gcloud",
+  args = {"auth", "print-access-token"},
+  ttl_s = 3600,
+})
+local auth = _raw.auth.bearer(token)
+```
+
+Rules:
+
+- never print secrets
+- never return raw credentials in tables
+- prefer passing opaque auth refs to `_raw.http.request`, `_raw.http.list`, and `_raw.http.start_request`
+
+---
+
+## 11. Tests and Validation
+
+### 11.1 Validate Packs
+
+Run:
+
+```bash
+./luaris-mcp validate --svc-dir <path>
+```
+
+For command help / flags:
+
+```bash
+./luaris-mcp help validate
+```
+
+### 11.2 Run Pack Tests
+
+Run:
+
+```bash
+./luaris-mcp test --svc-dir <path>
+```
+
+For command help / flags:
+
+```bash
+./luaris-mcp help test
+```
+
+Test guidance:
+
+- include a `tests/capabilities_test.lua` to ensure schemas are discoverable
+- include at least one integration-style test if the service is expected to be used for real workflows
+- tests should fail clearly when external prerequisites are missing
+- `examples/*.lua` files are not executed automatically by `./luaris-mcp test`; add an explicit test only when you intentionally want to validate example content or behavior
+
+---
+
+## 12. Adding a New Service Pack (Checklist)
+
+1. Create `SVC_DIR/<service>/src/init.lua` and define `<service> = { ... }`
+2. Implement one small read-only function end-to-end
+3. Add `__schema` for the namespace and include a runnable example
+4. Add a simple `tests/capabilities_test.lua`
+5. Run `./luaris-mcp validate --svc-dir ...`
+6. Run `./luaris-mcp test --svc-dir ...`
+7. Add example scripts under `examples/`
+
+---
+
+## 13. Maintaining This Document
+
+Update this file whenever:
+
+- the expected service pack directory layout changes
+- schema conventions change
+- security/mutating enforcement rules change
+- new pagination or transport primitives are added
