@@ -4,7 +4,7 @@ use std::{
     thread,
 };
 
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 fn one_shot_server(response: &'static str) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

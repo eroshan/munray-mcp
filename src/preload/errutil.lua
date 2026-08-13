@@ -4,7 +4,7 @@
 
 errutil = {}
 
-local PUBLIC_MARKER = "__luaris_mcp_public"
+local PUBLIC_MARKER = "__mcp_server_public"
 
 local policies = {}
 

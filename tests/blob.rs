@@ -1,6 +1,6 @@
 use std::fs;
 
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn cli_blob_can_be_measured_and_written_to_vfs() {

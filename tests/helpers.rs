@@ -25,7 +25,7 @@ if non_empty_err then error(non_empty_err.message) end
 print(json.encode(non_empty))
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()
@@ -54,7 +54,7 @@ if beyond_err then error(beyond_err.message) end
 print(json.encode(beyond))
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()
@@ -81,7 +81,7 @@ if err then error(err.message) end
 print(json.encode(page))
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()
@@ -110,7 +110,7 @@ if all_err then error(all_err.message) end
 print(json.encode(all))
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()
@@ -141,7 +141,7 @@ if taken_err then error(taken_err.message) end
 print(json.encode(taken))
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()
@@ -177,7 +177,7 @@ if collect_err then error(collect_err.message) end
 print(json.encode(collected))
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()
@@ -228,7 +228,7 @@ if empty_err then error(empty_err.message) end
 print(empty == nil)
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()
@@ -247,7 +247,7 @@ print(json.encode(tuple))
 print(json.encode({name = "test", n = 3}))
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()
@@ -268,7 +268,7 @@ local object = json.decode('{"name":"test","n":3}')
 print(json.encode(object))
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()
@@ -286,7 +286,7 @@ local starts_result, starts_err = helpers.starts_with(nil, "x")
 print(starts_result == nil, starts_err and starts_err.code)
 "#;
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin(script)
         .assert()

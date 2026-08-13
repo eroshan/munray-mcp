@@ -1,7 +1,7 @@
 use std::fs;
 use std::time::{Duration, Instant};
 
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 fn runtime_with_shell() -> (tempfile::TempDir, LuaRuntime) {
     let services = tempfile::tempdir().unwrap();

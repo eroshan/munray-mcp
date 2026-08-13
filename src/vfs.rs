@@ -228,7 +228,7 @@ pub(crate) fn register(
 
     let vfs_root = Arc::clone(&root);
     vfs.set("expose", lua.create_function(move |lua, paths: Table| {
-        let bundle = match tempfile::Builder::new().prefix("luaris-mcp-expose-").tempdir() { Ok(bundle) => bundle, Err(error) => return lua_error(lua, "VFS_ERROR", error.to_string(), false) };
+        let bundle = match tempfile::Builder::new().prefix(concat!(env!("CARGO_PKG_NAME"), "-expose-")).tempdir() { Ok(bundle) => bundle, Err(error) => return lua_error(lua, "VFS_ERROR", error.to_string(), false) };
         let mut files = Vec::new();
         for (index, path) in paths.sequence_values::<String>().enumerate() {
             let path = path?;

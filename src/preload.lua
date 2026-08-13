@@ -199,12 +199,12 @@ function _install_security_wrappers()
     local schema = namespace.__schema
     if type(schema) == "table" then
       for _, descriptor in ipairs(schema.functions or {}) do
-        if type(namespace[descriptor.name]) == "function" and not descriptor.__luaris_mcp_wrapped then
+        if type(namespace[descriptor.name]) == "function" and not descriptor.__mcp_server_wrapped then
           local original = namespace[descriptor.name]
           local metric_path = descriptor.path or ((schema.namespace or "") .. "." .. descriptor.name)
           local is_external = schema.service ~= nil and schema.service ~= "core"
           local is_iterator = descriptor.returns_contract == "core.iter"
-          descriptor.__luaris_mcp_wrapped = true
+          descriptor.__mcp_server_wrapped = true
           namespace[descriptor.name] = function(...)
             inc_metric(metric_path, "calls")
             if descriptor.mutating == true and raw_exec_mode() ~= "mutating" then

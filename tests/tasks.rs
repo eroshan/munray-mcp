@@ -1,6 +1,6 @@
 use std::fs;
 
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn async_cli_json_can_be_waited_for() {

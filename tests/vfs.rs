@@ -1,4 +1,4 @@
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn vfs_roundtrips_text_and_preserves_session_files() {

@@ -1,4 +1,4 @@
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn snippets_install_immediately_and_reject_overrides() {

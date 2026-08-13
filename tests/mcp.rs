@@ -21,7 +21,7 @@ fn exchange(stdin: &mut ChildStdin, stdout: &mut BufReader<ChildStdout>, value: 
 
 #[test]
 fn mcp_initializes_lists_tools_and_reuses_session_state() {
-    let mut child = ProcessCommand::new(cargo_bin("luaris-mcp"))
+    let mut child = ProcessCommand::new(cargo_bin(env!("CARGO_PKG_NAME")))
         .arg("mcp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -39,7 +39,10 @@ fn mcp_initializes_lists_tools_and_reuses_session_state() {
     let initialized = request(
         json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}),
     );
-    assert_eq!(initialized["result"]["serverInfo"]["name"], "luaris-mcp");
+    assert_eq!(
+        initialized["result"]["serverInfo"]["name"],
+        env!("CARGO_PKG_NAME")
+    );
     let listed = request(json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}));
     assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 2);
     request(
@@ -71,7 +74,7 @@ fn mcp_initializes_lists_tools_and_reuses_session_state() {
 
 #[test]
 fn mutating_tool_requires_elicitation_before_execution_and_honors_the_decision() {
-    let mut child = ProcessCommand::new(cargo_bin("luaris-mcp"))
+    let mut child = ProcessCommand::new(cargo_bin(env!("CARGO_PKG_NAME")))
         .arg("mcp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -213,7 +216,7 @@ fn mutating_tool_without_form_elicitation_capability_uses_source_fallback() {
     ]
     .concat();
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .arg("mcp")
         .write_stdin(input)
@@ -232,7 +235,7 @@ fn mcp_rejects_raw_calls_outside_schema_context() {
             "params":{"name":"lua_runLuaScript","arguments":{"code":"local value, err = _raw.exec_mode(); return err.code"}}
         })),
     ].concat();
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .arg("mcp")
         .write_stdin(input)
@@ -251,7 +254,7 @@ fn schema_backed_core_function_can_enter_raw_context() {
         })),
     ]
     .concat();
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .arg("mcp")
         .write_stdin(input)
@@ -270,7 +273,7 @@ fn mcp_preserves_printed_output_when_lua_fails() {
         })),
     ]
     .concat();
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .arg("mcp")
         .write_stdin(input)
@@ -301,7 +304,7 @@ end
 "#,
     )
     .unwrap();
-    let mut child = ProcessCommand::new(cargo_bin("luaris-mcp"))
+    let mut child = ProcessCommand::new(cargo_bin(env!("CARGO_PKG_NAME")))
         .args(["--svc-dir", services.path().to_str().unwrap(), "mcp"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -363,7 +366,7 @@ end
 #[test]
 #[ignore = "requires Unix socket permissions unavailable in the managed sandbox"]
 fn cli_ingest_targets_an_existing_mcp_session() {
-    let mut child = ProcessCommand::new(cargo_bin("luaris-mcp"))
+    let mut child = ProcessCommand::new(cargo_bin(env!("CARGO_PKG_NAME")))
         .arg("mcp")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -383,7 +386,7 @@ fn cli_ingest_targets_an_existing_mcp_session() {
         json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":"return true","session_id":"ingest-session"}}}),
     );
 
-    let output = Command::cargo_bin("luaris-mcp")
+    let output = Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args([
             "ingest",

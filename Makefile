@@ -1,8 +1,9 @@
-BIN := target/release/luaris-mcp
+PACKAGE_NAME := $(shell awk -F'"' '/^name = / { print $$2; exit }' Cargo.toml)
+BIN := target/release/$(PACKAGE_NAME)
 SERVICE_DIR := $(CURDIR)/services
 INSTALL_BIN_DIR ?= $(HOME)/.local/bin
-LUARIS_MCP_HOME ?= $(HOME)/.local/share/luaris-mcp
-INSTALLED_SERVICES := $(LUARIS_MCP_HOME)/services
+MUNRAY_MCP_HOME ?= $(HOME)/.local/share/$(PACKAGE_NAME)
+INSTALLED_SERVICES := $(MUNRAY_MCP_HOME)/services
 
 .PHONY: build check fmt lint test test-all test-services test-ignored validate run mcp stats clean install uninstall services-install services-clean
 
@@ -46,10 +47,10 @@ clean:
 
 install: build
 	install -d $(INSTALL_BIN_DIR)
-	install -m 0755 $(BIN) $(INSTALL_BIN_DIR)/luaris-mcp
+	install -m 0755 $(BIN) $(INSTALL_BIN_DIR)/$(PACKAGE_NAME)
 
 uninstall:
-	rm -f $(INSTALL_BIN_DIR)/luaris-mcp
+	rm -f $(INSTALL_BIN_DIR)/$(PACKAGE_NAME)
 
 services-install:
 	@mkdir -p $(INSTALLED_SERVICES)

@@ -80,7 +80,7 @@ impl LuaRuntime {
         let lua = unsafe { Lua::unsafe_new() };
         let vfs = Arc::new(
             tempfile::Builder::new()
-                .prefix("luaris-mcp-vfs-")
+                .prefix(concat!(env!("CARGO_PKG_NAME"), "-vfs-"))
                 .tempdir()?,
         );
         let exposures = Arc::new(Mutex::new(Vec::new()));

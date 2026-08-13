@@ -1,4 +1,4 @@
-# luaris-mcp
+# munray-mcp
 
 Rust host for a persistent Lua runtime exposed through the
 official Rust MCP SDK. Existing service-pack Lua is loaded unchanged.
@@ -7,20 +7,20 @@ official Rust MCP SDK. Existing service-pack Lua is loaded unchanged.
 cargo build --release
 
 # Pipe Lua directly to the CLI (there is intentionally no interactive REPL).
-printf 'print("hello")\nreturn 6 * 7\n' | target/release/luaris-mcp
+printf 'print("hello")\nreturn 6 * 7\n' | target/release/munray-mcp
 
 # Or execute a file.
-target/release/luaris-mcp run script.lua
+target/release/munray-mcp run script.lua
 
 # Start the MCP stdio server and load external service packs.
-target/release/luaris-mcp mcp --svc-dir ./services
+target/release/munray-mcp mcp --svc-dir ./services
 
 # Keep store values and saved Lua snippets across restarts.
-target/release/luaris-mcp --store-path ~/.local/share/luaris-mcp/store.json \
+target/release/munray-mcp --store-path ~/.local/share/munray-mcp/store.json \
   --svc-dir ./services mcp
 
 # Push text into an existing MCP session (server id is the MCP process id).
-some-command | target/release/luaris-mcp ingest \
+some-command | target/release/munray-mcp ingest \
   --server <pid> --session <session-id> --json
 ```
 
@@ -42,9 +42,9 @@ make mcp
 
 `--svc-dir` points at the existing service-pack tree. Rust replaces the
 host application; it does not translate or alter service Lua source.
-The store defaults to `$LUARIS_MCP_HOME/store.json`, where `LUARIS_MCP_HOME`
-defaults to `$HOME/.local/share/luaris-mcp`. `--store-path` (or
-`LUARIS_MCP_STORE_PATH`) overrides it. Saved functions, schemas, examples, and
+The store defaults to `$MUNRAY_MCP_HOME/store.json`, where `MUNRAY_MCP_HOME`
+defaults to `$HOME/.local/share/munray-mcp`. `--store-path` (or
+`MUNRAY_MCP_STORE_PATH`) overrides it. Saved functions, schemas, examples, and
 function usage metrics are restored on startup; cache entries intentionally
 remain process-local.
 
@@ -63,16 +63,16 @@ and ingest. Unix ingest sockets are created with owner-only permissions.
 
 | Option | Environment | Purpose |
 | --- | --- | --- |
-| `--svc-dir` | `LUARIS_MCP_SVC_DIR` | Service-pack directory; defaults to `$LUARIS_MCP_HOME/services` |
-| `--store-path` | `LUARIS_MCP_STORE_PATH` | Durable store, saved snippets, and usage metrics; defaults to `$LUARIS_MCP_HOME/store.json` |
-| `--logs-dir` | `LUARIS_MCP_LOGS_DIR` | Owner-only JSONL execution telemetry |
+| `--svc-dir` | `MUNRAY_MCP_SVC_DIR` | Service-pack directory; defaults to `$MUNRAY_MCP_HOME/services` |
+| `--store-path` | `MUNRAY_MCP_STORE_PATH` | Durable store, saved snippets, and usage metrics; defaults to `$MUNRAY_MCP_HOME/store.json` |
+| `--logs-dir` | `MUNRAY_MCP_LOGS_DIR` | Owner-only JSONL execution telemetry |
 
-`luaris-mcp stats` reports wrapped public function availability and usage metrics
+`munray-mcp stats` reports wrapped public function availability and usage metrics
 from the durable store:
 
 ```sh
-target/release/luaris-mcp stats
-target/release/luaris-mcp stats --json
+target/release/munray-mcp stats
+target/release/munray-mcp stats --json
 ```
 
 ## Installation
@@ -82,19 +82,19 @@ make install
 make services-install
 ```
 
-The binary is installed to `~/.local/bin/luaris-mcp` by default. Development
-service links are installed under `~/.local/share/luaris-mcp/services`. Override
-`INSTALL_BIN_DIR` or `LUARIS_MCP_HOME` when invoking Make if desired.
+The binary is installed to `~/.local/bin/munray-mcp` by default. Development
+service links are installed under `~/.local/share/munray-mcp/services`. Override
+`INSTALL_BIN_DIR` or `MUNRAY_MCP_HOME` when invoking Make if desired.
 
 At runtime, service-directory precedence is `--svc-dir`, then
-`LUARIS_MCP_SVC_DIR`, then `$LUARIS_MCP_HOME/services`. If `LUARIS_MCP_HOME` is unset,
-it defaults to `$HOME/.local/share/luaris-mcp`.
+`MUNRAY_MCP_SVC_DIR`, then `$MUNRAY_MCP_HOME/services`. If `MUNRAY_MCP_HOME` is unset,
+it defaults to `$HOME/.local/share/munray-mcp`.
 
 ## Migration
 
-Use the Rust binary name `luaris-mcp`, rename host environment variables to the
-`LUARIS_MCP_*` forms above, and point `--svc-dir` at this repository’s `services/`
+Use the Rust binary name `munray-mcp`, rename host environment variables to the
+`MUNRAY_MCP_*` forms above, and point `--svc-dir` at this repository’s `services/`
 directory. MCP clients should call `lua_runLuaScript` and
 `lua_runMutatingLuaScript`. Existing service Lua APIs and test behavior remain
-the same; no interactive REPL is provided, so pipe Lua to `luaris-mcp` or use the
+the same; no interactive REPL is provided, so pipe Lua to `munray-mcp` or use the
 `run` subcommand.

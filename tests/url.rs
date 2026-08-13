@@ -1,4 +1,4 @@
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn query_and_path_escaping_match_the_contract() {

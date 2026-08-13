@@ -1,6 +1,6 @@
 use std::{thread, time::Duration};
 
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn store_supports_crud_and_sorted_keys() {

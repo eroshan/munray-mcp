@@ -1,4 +1,4 @@
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn multiple_results_are_returned_as_an_array_and_trailing_nil_is_trimmed() {

@@ -6,7 +6,7 @@ fn saved_snippet_survives_a_new_cli_process() {
     let directory = tempfile::tempdir().unwrap();
     let store = directory.path().join("store.json");
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["--store-path", store.to_str().unwrap()])
         .write_stdin(
@@ -15,7 +15,7 @@ fn saved_snippet_survives_a_new_cli_process() {
         .assert()
         .success();
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["--store-path", store.to_str().unwrap()])
         .write_stdin("return local_tools.answer()")

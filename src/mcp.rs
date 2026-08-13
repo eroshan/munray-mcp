@@ -82,7 +82,7 @@ fn mutating_confirmation_schema() -> Result<ElicitationSchema, String> {
 }
 
 #[derive(Clone)]
-pub struct LuarisMcpServer {
+pub struct McpServer {
     tool_router: ToolRouter<Self>,
     sessions: Arc<Mutex<HashMap<String, Arc<Session>>>>,
     service_dir: Option<PathBuf>,
@@ -166,10 +166,10 @@ impl Session {
     }
 }
 
-impl std::fmt::Debug for LuarisMcpServer {
+impl std::fmt::Debug for McpServer {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("LuarisMcpServer")
+            .debug_struct("McpServer")
             .field("service_dir", &self.service_dir)
             .field("store_path", &self.store_path)
             .finish()
@@ -177,7 +177,7 @@ impl std::fmt::Debug for LuarisMcpServer {
 }
 
 #[tool_router]
-impl LuarisMcpServer {
+impl McpServer {
     pub fn new(service_dir: Option<PathBuf>) -> Self {
         Self::with_store_path(service_dir, None)
     }
@@ -391,10 +391,13 @@ impl LuarisMcpServer {
 }
 
 #[tool_handler(router = self.tool_router)]
-impl ServerHandler for LuarisMcpServer {
+impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new("luaris-mcp", env!("CARGO_PKG_VERSION")))
+            .with_server_info(Implementation::new(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+            ))
             .with_instructions("Execute Lua with lua_runLuaScript by default. Reuse session_id to preserve global state; local variables are call-scoped. Use capabilities.ai_context() to discover APIs.")
     }
 }
@@ -412,11 +415,7 @@ mod tests {
         let _in_flight_reference = Arc::clone(&live);
         let mut sessions = HashMap::from([("stale".to_owned(), stale), ("live".to_owned(), live)]);
 
-        LuarisMcpServer::retain_live_sessions(
-            &mut sessions,
-            Instant::now(),
-            Duration::from_secs(30),
-        );
+        McpServer::retain_live_sessions(&mut sessions, Instant::now(), Duration::from_secs(30));
 
         assert!(!sessions.contains_key("stale"));
         assert!(sessions.contains_key("live"));

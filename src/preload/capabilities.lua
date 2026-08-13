@@ -366,7 +366,7 @@ local function discover()
 	end
 
 	-- Optional warnings for missing method coverage (env opt-in)
-	local warn_missing = os_getenv ~= nil and os_getenv("LUARIS_MCP_WARN_MISSING_EXAMPLES") == "1"
+	local warn_missing = os_getenv ~= nil and os_getenv("MUNRAY_MCP_WARN_MISSING_EXAMPLES") == "1"
 	if warn_missing then
 		for ns, fns in pairs(out.functions_by_namespace) do
 			local has_namespace_example = namespace_examples[ns] ~= nil
@@ -604,7 +604,7 @@ end
 
 -- capabilities._raw_schemas()
 -- Returns discovered schemas as a raw map: namespace -> __schema table (including any extra keys).
--- This is intended for core validation tooling (e.g. `luaris-mcp validate`).
+-- This is intended for core validation tooling (e.g. `munray-mcp validate`).
 function capabilities._raw_schemas()
 	local d = discover()
 	return d.schemas

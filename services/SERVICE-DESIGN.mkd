@@ -1,8 +1,8 @@
 # Service Pack Design Document
 
-This document is the living source of truth for **luaris-mcp service packs**.
+This document is the living source of truth for **munray-mcp service packs**.
 
-Service packs are **external user-managed inputs** loaded from a services directory (`SVC_DIR`). The luaris-mcp core binary is service-agnostic and provides only base runtime + raw primitives.
+Service packs are **external user-managed inputs** loaded from a services directory (`SVC_DIR`). The munray-mcp core binary is service-agnostic and provides only base runtime + raw primitives.
 
 Core architecture lives in [APP-DESIGN.mkd](../APP-DESIGN.mkd).
 
@@ -10,11 +10,11 @@ Core architecture lives in [APP-DESIGN.mkd](../APP-DESIGN.mkd).
 
 ## 1. What Is a Service Pack?
 
-A service pack is a directory `SVC_DIR/<service>/` that contributes one or more Lua namespaces (typically rooted at `<service>.*`) to the luaris-mcp Lua runtime.
+A service pack is a directory `SVC_DIR/<service>/` that contributes one or more Lua namespaces (typically rooted at `<service>.*`) to the munray-mcp Lua runtime.
 
 A service pack:
 
-- is loaded from the filesystem (not embedded in the luaris-mcp binary)
+- is loaded from the filesystem (not embedded in the munray-mcp binary)
 - should be stateless (no hidden global state required to call functions)
 - declares `__schema` metadata so the core `capabilities.*` API can expose function signatures/types/examples
 - may be CLI-based (using `_raw.cli.text`, `_raw.cli.json`, `_raw.cli.start_text`, `_raw.cli.start_json`), HTTP-based (using `_raw.http.request`, `_raw.http.list`, `_raw.http.start_request`), or GraphQL-based (using `_raw.graphql.request`, `_raw.graphql.list`, `_raw.graphql.start_request`)
@@ -90,7 +90,7 @@ The core runtime loads Lua in a deterministic order:
    - all `<service>/src/init.lua` files (alphabetically by service)
    - all other `<service>/src/**/*.lua` files (alphabetically by path)
 4. The core captures security validators to prevent runtime overrides
-5. User code executes (REPL or MCP). In REPL and `./luaris-mcp test`, direct `_raw.*` calls are allowed for debugging and service-pack tests.
+5. User code executes (REPL or MCP). In REPL and `./munray-mcp test`, direct `_raw.*` calls are allowed for debugging and service-pack tests.
 
 Implications for pack authors:
 
@@ -340,7 +340,7 @@ Notes:
 Example style guidance:
 
 - Keep examples focused and compact; include only the minimum setup needed to understand the call.
-- Examples are documentation loaded by `capabilities.examples(...)`; they are not executed automatically by `./luaris-mcp test` unless a test explicitly loads and runs them.
+- Examples are documentation loaded by `capabilities.examples(...)`; they are not executed automatically by `./munray-mcp test` unless a test explicitly loads and runs them.
 - Do not add read-only fallback branches, `run_*` gates, or other test-phase protections unless the example genuinely needs them.
 - For mutating APIs, it is fine for the example to show the direct mutating call when that is the clearest usage.
 
@@ -356,7 +356,7 @@ Lookup order:
 Non-blocking warnings:
 
 - Emitted when a cached example exists without a matching schema.
-- Set `LUARIS_MCP_WARN_MISSING_EXAMPLES=1` to also warn when a method has neither an inline example nor a namespace-level fallback.
+- Set `MUNRAY_MCP_WARN_MISSING_EXAMPLES=1` to also warn when a method has neither an inline example nor a namespace-level fallback.
 
 ---
 
@@ -364,7 +364,7 @@ Non-blocking warnings:
 
 ### 7.0 Complete Raw Primitive Surface (Core)
 
-For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `_raw.*` calls are also allowed in the local REPL and `./luaris-mcp test` for debugging and service-pack tests.
+For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `_raw.*` calls are also allowed in the local REPL and `./munray-mcp test` for debugging and service-pack tests.
 
 - Execution mode:
   - `_raw.exec_mode() -> "readonly"|"mutating"` (introspection only; do not use for Lua-side permission checks)
@@ -423,7 +423,7 @@ For completeness, the core currently exposes these **raw primitives** to the Lua
   - `_raw.task.wait(task_id, timeout_ms?) -> (result|nil, err)`
 - Ingest (core/internal):
   - `_raw.ingest.get(token) -> (text|nil, err)`
-  - Used by the core `ingest.get(token)` wrapper to read UTF-8 text previously uploaded into the current MCP session via `luaris-mcp ingest`.
+  - Used by the core `ingest.get(token)` wrapper to read UTF-8 text previously uploaded into the current MCP session via `munray-mcp ingest`.
   - Not intended as a general service-pack transport primitive.
 - Test helper (test/validation only):
   - `_raw.test.start_task(delay_ms, result) -> (task_id|nil, err)`
@@ -646,13 +646,13 @@ Rules:
 Run:
 
 ```bash
-./luaris-mcp validate --svc-dir <path>
+./munray-mcp validate --svc-dir <path>
 ```
 
 For command help / flags:
 
 ```bash
-./luaris-mcp help validate
+./munray-mcp help validate
 ```
 
 ### 11.2 Run Pack Tests
@@ -660,13 +660,13 @@ For command help / flags:
 Run:
 
 ```bash
-./luaris-mcp test --svc-dir <path>
+./munray-mcp test --svc-dir <path>
 ```
 
 For command help / flags:
 
 ```bash
-./luaris-mcp help test
+./munray-mcp help test
 ```
 
 Test guidance:
@@ -674,7 +674,7 @@ Test guidance:
 - include a `tests/capabilities_test.lua` to ensure schemas are discoverable
 - include at least one integration-style test if the service is expected to be used for real workflows
 - tests should fail clearly when external prerequisites are missing
-- `examples/*.lua` files are not executed automatically by `./luaris-mcp test`; add an explicit test only when you intentionally want to validate example content or behavior
+- `examples/*.lua` files are not executed automatically by `./munray-mcp test`; add an explicit test only when you intentionally want to validate example content or behavior
 
 ---
 
@@ -684,8 +684,8 @@ Test guidance:
 2. Implement one small read-only function end-to-end
 3. Add `__schema` for the namespace and include a runnable example
 4. Add a simple `tests/capabilities_test.lua`
-5. Run `./luaris-mcp validate --svc-dir ...`
-6. Run `./luaris-mcp test --svc-dir ...`
+5. Run `./munray-mcp validate --svc-dir ...`
+6. Run `./munray-mcp test --svc-dir ...`
 7. Add example scripts under `examples/`
 
 ---

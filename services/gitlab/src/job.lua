@@ -254,7 +254,7 @@ function gitlab.job.artifact_download(repo, id, opts)
 	if raw_blob_from_cli == nil or raw_blob_len == nil then
 		return nil, {
 			code = "NOT_AVAILABLE",
-			message = "gitlab.job.artifact_download: blob primitives not available (requires luaris-mcp core with _raw.blob.*)",
+			message = "gitlab.job.artifact_download: blob primitives not available (requires munray-mcp core with _raw.blob.*)",
 			recoverable = false,
 		}
 	end
@@ -262,7 +262,7 @@ function gitlab.job.artifact_download(repo, id, opts)
 	if vfs_ensure_parent == nil or raw_vfs_write_blob == nil then
 		return nil, {
 			code = "NOT_AVAILABLE",
-			message = "gitlab.job.artifact_download: VFS helpers not available (requires luaris-mcp core with _raw.vfs.* + vfs.ensure_parent)",
+			message = "gitlab.job.artifact_download: VFS helpers not available (requires munray-mcp core with _raw.vfs.* + vfs.ensure_parent)",
 			recoverable = false,
 		}
 	end

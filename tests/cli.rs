@@ -4,7 +4,7 @@ use std::fs;
 
 #[test]
 fn help_lists_supported_commands() {
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .arg("--help")
         .assert()
@@ -18,7 +18,7 @@ fn help_lists_supported_commands() {
 
 #[test]
 fn list_raw_enumerates_registered_primitives() {
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .arg("list-raw")
         .assert()
@@ -31,7 +31,7 @@ fn list_raw_enumerates_registered_primitives() {
 
 #[test]
 fn stdin_is_executed_as_lua_without_a_repl() {
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .write_stdin("print('hello from lua')\nreturn 6 * 7\n")
         .assert()
@@ -42,7 +42,7 @@ fn stdin_is_executed_as_lua_without_a_repl() {
 
 #[test]
 fn run_rejects_empty_stdin() {
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .arg("run")
         .write_stdin("")
@@ -52,11 +52,12 @@ fn run_rejects_empty_stdin() {
 }
 
 #[test]
-fn services_default_to_the_luaris_mcp_home_location() {
+fn services_default_to_the_mcp_server_home_location() {
     let home = tempfile::tempdir().unwrap();
-    let service_src = home
-        .path()
-        .join(".local/share/luaris-mcp/services/example/src");
+    let service_src = home.path().join(format!(
+        ".local/share/{}/services/example/src",
+        env!("CARGO_PKG_NAME")
+    ));
     fs::create_dir_all(&service_src).unwrap();
     fs::write(
         service_src.join("init.lua"),
@@ -64,10 +65,10 @@ fn services_default_to_the_luaris_mcp_home_location() {
     )
     .unwrap();
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .env_remove("LUARIS_MCP_SVC_DIR")
-        .env_remove("LUARIS_MCP_HOME")
+        .env_remove("MUNRAY_MCP_SVC_DIR")
+        .env_remove("MUNRAY_MCP_HOME")
         .env("HOME", home.path())
         .write_stdin("return home_service.value")
         .assert()
@@ -78,24 +79,24 @@ fn services_default_to_the_luaris_mcp_home_location() {
 }
 
 #[test]
-fn luaris_mcp_home_overrides_the_home_derived_location() {
+fn mcp_server_home_overrides_the_home_derived_location() {
     let data_home = tempfile::tempdir().unwrap();
     let service_src = data_home.path().join("services/example/src");
     fs::create_dir_all(&service_src).unwrap();
     fs::write(
         service_src.join("init.lua"),
-        "configured_home_service = { value = 'loaded from LUARIS_MCP_HOME' }",
+        "configured_home_service = { value = 'loaded from MUNRAY_MCP_HOME' }",
     )
     .unwrap();
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .env_remove("LUARIS_MCP_SVC_DIR")
-        .env("LUARIS_MCP_HOME", data_home.path())
+        .env_remove("MUNRAY_MCP_SVC_DIR")
+        .env("MUNRAY_MCP_HOME", data_home.path())
         .write_stdin("return configured_home_service.value")
         .assert()
         .success()
-        .stdout(predicate::str::contains("loaded from LUARIS_MCP_HOME"));
+        .stdout(predicate::str::contains("loaded from MUNRAY_MCP_HOME"));
 }
 
 #[test]
@@ -103,14 +104,14 @@ fn stats_reports_function_usage_in_legacy_text_format() {
     let directory = tempfile::tempdir().unwrap();
     let store = directory.path().join("store.json");
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["--store-path", store.to_str().unwrap()])
         .write_stdin("return json.encode({answer=42})")
         .assert()
         .success();
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["--store-path", store.to_str().unwrap(), "stats"])
         .assert()
@@ -133,7 +134,7 @@ fn stats_reports_historical_service_usage_even_without_the_service_dir() {
     let store = directory.path().join("store.json");
     let services = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("services");
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args([
             "--svc-dir",
@@ -150,11 +151,11 @@ return true
         .assert()
         .success();
 
-    Command::cargo_bin("luaris-mcp")
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["--store-path", store.to_str().unwrap(), "stats"])
-        .env_remove("LUARIS_MCP_SVC_DIR")
-        .env("LUARIS_MCP_HOME", directory.path().join("empty-data-home"))
+        .env_remove("MUNRAY_MCP_SVC_DIR")
+        .env("MUNRAY_MCP_HOME", directory.path().join("empty-data-home"))
         .assert()
         .success()
         .stdout(predicate::str::contains("gitlab"))

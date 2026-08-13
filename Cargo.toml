@@ -1,5 +1,6 @@
 [package]
-name = "luaris-mcp"
+# Canonical product/binary name. Cargo exposes it as CARGO_PKG_NAME at build time.
+name = "munray-mcp"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
@@ -8,6 +9,10 @@ license = "MIT"
 readme = "README.md"
 keywords = ["mcp", "lua", "automation"]
 categories = ["command-line-utilities", "development-tools"]
+
+[lib]
+# Keep implementation imports independent of the product name.
+name = "mcp_server"
 
 [dependencies]
 anyhow = "1.0"

@@ -1,6 +1,6 @@
 use std::fs;
 
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn user_code_cannot_recover_restricted_stdlib() {

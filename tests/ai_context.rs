@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 const GO_AI_CONTEXT: &str = include_str!("fixtures/go-ai-context.json");
 

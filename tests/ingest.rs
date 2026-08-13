@@ -1,4 +1,4 @@
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn ingested_text_is_session_local_and_repeatable() {

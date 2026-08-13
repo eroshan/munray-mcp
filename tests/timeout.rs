@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use luaris_mcp::runtime::{ExecutionMode, LuaRuntime};
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
 fn lua_instruction_timeout_interrupts_runaway_code() {

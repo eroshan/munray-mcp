@@ -5,7 +5,7 @@
 --
 -- IMPORTANT: Task records are retained for ~5 minutes after completion. After this period,
 -- tasks are cleaned up and async_task.* queries may return NOT_FOUND.
--- Tasks are also session-scoped: you must poll/result/wait using the same luaris-mcp session
+-- Tasks are also session-scoped: you must poll/result/wait using the same munray-mcp session
 -- that created the task_id.
 --
 -- NOTE: This namespace is called `async_task` (not `task`) to avoid common variable

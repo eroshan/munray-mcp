@@ -2,8 +2,8 @@ use std::{io::Read, path::PathBuf};
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use luaris_mcp::{
-    mcp::LuarisMcpServer,
+use mcp_server::{
+    mcp::McpServer,
     runtime::{ExecutionMode, LuaRuntime, read_script},
     services,
 };
@@ -11,20 +11,20 @@ use rmcp::{ServiceExt, transport::stdio};
 
 #[derive(Parser)]
 #[command(
-    name = "luaris-mcp",
+    name = env!("CARGO_PKG_NAME"),
     version,
     about = "Persistent Lua runtime and MCP server"
 )]
 struct Cli {
-    /// Service-pack directory. Defaults to $LUARIS_MCP_HOME/services, where
-    /// LUARIS_MCP_HOME defaults to $HOME/.local/share/luaris-mcp.
-    #[arg(long, global = true, env = "LUARIS_MCP_SVC_DIR")]
+    /// Service-pack directory. Defaults to $MUNRAY_MCP_HOME/services, where
+    /// MUNRAY_MCP_HOME defaults to $HOME/.local/share/<package name>.
+    #[arg(long, global = true, env = "MUNRAY_MCP_SVC_DIR")]
     svc_dir: Option<PathBuf>,
     /// Persist store values, saved Lua snippets, and usage metrics across processes.
-    #[arg(long, global = true, env = "LUARIS_MCP_STORE_PATH")]
+    #[arg(long, global = true, env = "MUNRAY_MCP_STORE_PATH")]
     store_path: Option<PathBuf>,
     /// Write owner-only execution telemetry JSONL logs.
-    #[arg(long, global = true, env = "LUARIS_MCP_LOGS_DIR")]
+    #[arg(long, global = true, env = "MUNRAY_MCP_LOGS_DIR")]
     logs_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: Option<Command>,
@@ -78,9 +78,9 @@ async fn run() -> Result<()> {
             execute(Some(file), cli.svc_dir, cli.store_path, cli.logs_dir)
         }
         Some(Command::Mcp) => {
-            let server = LuarisMcpServer::with_options(cli.svc_dir, cli.store_path, cli.logs_dir);
+            let server = McpServer::with_options(cli.svc_dir, cli.store_path, cli.logs_dir);
             #[cfg(unix)]
-            let _ingest = match luaris_mcp::ipc::start_listener(
+            let _ingest = match mcp_server::ipc::start_listener(
                 server.clone(),
                 &std::process::id().to_string(),
             ) {
@@ -129,19 +129,19 @@ fn run_ingest(server: &str, session: &str, json_mode: bool) -> Result<()> {
     }
     let mut payload = Vec::new();
     std::io::stdin()
-        .take((luaris_mcp::ipc::MAX_INGEST_BYTES + 1) as u64)
+        .take((mcp_server::ipc::MAX_INGEST_BYTES + 1) as u64)
         .read_to_end(&mut payload)?;
-    if payload.len() > luaris_mcp::ipc::MAX_INGEST_BYTES {
-        bail!("stdin exceeds {} bytes", luaris_mcp::ipc::MAX_INGEST_BYTES)
+    if payload.len() > mcp_server::ipc::MAX_INGEST_BYTES {
+        bail!("stdin exceeds {} bytes", mcp_server::ipc::MAX_INGEST_BYTES)
     }
     std::str::from_utf8(&payload).map_err(|_| anyhow::anyhow!("stdin is not valid UTF-8"))?;
     #[cfg(unix)]
     let response =
-        luaris_mcp::ipc::send_text(server, session, &payload).map_err(anyhow::Error::msg)?;
+        mcp_server::ipc::send_text(server, session, &payload).map_err(anyhow::Error::msg)?;
     #[cfg(not(unix))]
     bail!("ingest IPC is not supported on this platform");
     if !response.ok {
-        let error = response.error.unwrap_or(luaris_mcp::ipc::IngestError {
+        let error = response.error.unwrap_or(mcp_server::ipc::IngestError {
             code: "INGEST_WRITE_FAILED".into(),
             message: "ingest failed".into(),
             recoverable: false,
@@ -193,9 +193,9 @@ fn execute(
         file.as_ref().map_or("<stdin>", |_| "<file>"),
     )?;
     if let Some(logs_dir) = logs_dir {
-        luaris_mcp::telemetry::Logger::new(&logs_dir)?.log(
-            luaris_mcp::telemetry::ExecutionEntry {
-                timestamp_ms: luaris_mcp::telemetry::now_ms(),
+        mcp_server::telemetry::Logger::new(&logs_dir)?.log(
+            mcp_server::telemetry::ExecutionEntry {
+                timestamp_ms: mcp_server::telemetry::now_ms(),
                 session_id: "cli".into(),
                 mode: "mutating".into(),
                 code,
@@ -219,11 +219,11 @@ fn run_stats(
     json_mode: bool,
 ) -> Result<()> {
     let store_path = store_path.expect("store path is resolved before stats");
-    let stats = luaris_mcp::stats::collect_report(service_dir.as_deref(), &store_path)?;
+    let stats = mcp_server::stats::collect_report(service_dir.as_deref(), &store_path)?;
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&stats)?);
     } else {
-        print!("{}", luaris_mcp::stats::render_text(&stats));
+        print!("{}", mcp_server::stats::render_text(&stats));
     }
     Ok(())
 }
@@ -231,7 +231,7 @@ fn run_stats(
 fn require_service_dir(path: Option<PathBuf>) -> Result<PathBuf> {
     path.ok_or_else(|| {
         anyhow::anyhow!(
-            "service directory required: pass --svc-dir, set LUARIS_MCP_SVC_DIR, or set LUARIS_MCP_HOME/HOME"
+            "service directory required: pass --svc-dir, set MUNRAY_MCP_SVC_DIR, or set MUNRAY_MCP_HOME/HOME"
         )
     })
 }
@@ -252,8 +252,12 @@ fn resolve_store_path(path: Option<PathBuf>) -> Result<PathBuf> {
 }
 
 fn data_home() -> Option<PathBuf> {
-    nonempty_env_path("LUARIS_MCP_HOME").or_else(|| {
-        nonempty_env_path("HOME").map(|home| home.join(".local").join("share").join("luaris-mcp"))
+    nonempty_env_path("MUNRAY_MCP_HOME").or_else(|| {
+        nonempty_env_path("HOME").map(|home| {
+            home.join(".local")
+                .join("share")
+                .join(env!("CARGO_PKG_NAME"))
+        })
     })
 }
 

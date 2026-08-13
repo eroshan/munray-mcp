@@ -12,7 +12,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::mcp::LuarisMcpServer;
+use crate::mcp::McpServer;
 
 pub const MAX_INGEST_BYTES: usize = 64 * 1024 * 1024;
 
@@ -70,14 +70,14 @@ impl Drop for IngestListenerGuard {
 
 #[cfg(unix)]
 pub fn endpoint(server_id: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("luaris-mcp-ingest-{server_id}.sock"))
+    std::env::temp_dir().join(format!(
+        "{}-ingest-{server_id}.sock",
+        env!("CARGO_PKG_NAME")
+    ))
 }
 
 #[cfg(unix)]
-pub fn start_listener(
-    server: LuarisMcpServer,
-    server_id: &str,
-) -> std::io::Result<IngestListenerGuard> {
+pub fn start_listener(server: McpServer, server_id: &str) -> std::io::Result<IngestListenerGuard> {
     let path = endpoint(server_id);
     let _ = fs::remove_file(&path);
     let listener = UnixListener::bind(&path)?;
@@ -93,7 +93,7 @@ pub fn start_listener(
 }
 
 #[cfg(unix)]
-fn handle_connection(server: LuarisMcpServer, mut stream: UnixStream) {
+fn handle_connection(server: McpServer, mut stream: UnixStream) {
     let response = read_request(&mut stream).and_then(|(header, payload)| {
         if header.op != "ingest_text_v1" {
             return Err(IngestResponse::failure(

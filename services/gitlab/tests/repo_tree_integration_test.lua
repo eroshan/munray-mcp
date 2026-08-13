@@ -5,11 +5,11 @@
 --   GITLAB_TEST_TREE_REPO=<group/project>
 --
 -- If GITLAB_TEST_TREE=1 is used without an explicit repo override, the tests use:
---   fivn/engineering/agentic-coding/luaris-mcp
+--   fivn/engineering/agentic-coding/munray-mcp
 --
 -- These tests require live GitLab access and permission to read the repository.
 
-local DEFAULT_TREE_REPO = "fivn/engineering/agentic-coding/luaris-mcp"
+local DEFAULT_TREE_REPO = "fivn/engineering/agentic-coding/munray-mcp"
 
 local function enabled_tree_repo()
 	local explicit_repo = os.getenv("GITLAB_TEST_TREE_REPO")
