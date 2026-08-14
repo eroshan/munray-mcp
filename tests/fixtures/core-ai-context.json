@@ -92,14 +92,14 @@
       "save": "({namespace:string, name:string, code:string, ...})* -> core.result"
     },
     "vfs": {
-      "ensure_parent": "(path) -> core.result",
+      "ensure_parent": "(path)* -> core.result",
       "expose": "(paths)* -> core.result",
       "ls": "(path, opts?) -> core.result",
-      "mkdirp": "(path) -> core.result",
+      "mkdirp": "(path)* -> core.result",
       "read_text": "(path, opts?) -> core.result",
       "stat": "(path) -> core.result",
       "to_txt": "(path, opts?) -> core.result",
-      "write_text": "(path, text, opts?) -> core.result"
+      "write_text": "(path, text, opts?)* -> core.result"
     },
     "yaml": {
       "decode": "(yaml_string) -> core.result",

@@ -497,7 +497,32 @@ function helpers.keys(t)
 	for k in pairs(t) do
 		table.insert(result, k)
 	end
-	table.sort(result)
+
+	-- Lua's default sort comparator cannot compare values of different types.
+	-- Keep the result deterministic for mixed-key tables by grouping key types,
+	-- then using a type-appropriate comparison within each group.
+	local type_order = {
+		number = 1,
+		string = 2,
+		boolean = 3,
+		table = 4,
+		["function"] = 5,
+		thread = 6,
+		userdata = 7,
+	}
+	table.sort(result, function(a, b)
+		local type_a, type_b = type(a), type(b)
+		if type_a ~= type_b then
+			return (type_order[type_a] or 99) < (type_order[type_b] or 99)
+		end
+		if type_a == "number" or type_a == "string" then
+			return a < b
+		end
+		if type_a == "boolean" then
+			return not a and b
+		end
+		return tostring(a) < tostring(b)
+	end)
 	return result, nil
 end
 

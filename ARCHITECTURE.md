@@ -401,7 +401,7 @@ The process-global command registry has no cleanup. It retains definitions after
 
 Each runtime owns a temporary VFS root. VFS paths must be non-empty, relative, free of parent/root/prefix components, and limited to ASCII alphanumerics plus `.`, `_`, `/`, and `-`.
 
-The VFS provides directory creation, text/blob writes, text reads, metadata, recursive/nonrecursive listing, ZIP extraction/previews, and exposure bundles. VFS writes are declared non-guarded by policy because they affect runtime-local scratch space; `vfs.expose` is guarded because it creates host-visible copies.
+The VFS provides directory creation, text/blob writes, text reads, metadata, recursive/nonrecursive listing, ZIP extraction/previews, and exposure bundles. Directory and text-write mutations (`mkdirp`, `ensure_parent`, and `write_text`) and `vfs.expose` are guarded operations; reads and inspection remain read-only.
 
 ZIP conversion shells out to `unzip` without the service CLI allowlist or execution deadline. It limits the number of files and preview bytes but not total extracted bytes, so archive expansion can consume substantial memory/disk. Exposure bundles remain alive until the runtime drops.
 

@@ -277,6 +277,22 @@ print(json.encode(object))
 }
 
 #[test]
+fn helpers_keys_sorts_mixed_key_tables_without_crashing() {
+    let script = r#"
+local keys, err = helpers.keys({ z = 1, a = 2, [3] = 4 })
+assert(err == nil)
+print(keys[1], keys[2], keys[3])
+"#;
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .write_stdin(script)
+        .assert()
+        .success()
+        .stdout("3\ta\tz\n");
+}
+
+#[test]
 fn helpers_string_predicates_return_structured_errors_for_nil_inputs() {
     let script = r#"
 local contains_result, contains_err = helpers.contains(nil, "x")

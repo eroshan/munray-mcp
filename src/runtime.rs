@@ -325,9 +325,10 @@ impl LuaRuntime {
         json_api.set(
             "decode",
             self.lua.create_function(|lua, text: String| {
-                let value: JsonValue =
-                    serde_json::from_str(&text).map_err(mlua::Error::external)?;
-                json_value_to_lua(lua, &value)
+                match serde_json::from_str::<JsonValue>(&text) {
+                    Ok(value) => Ok(MultiValue::from_vec(vec![json_value_to_lua(lua, &value)?])),
+                    Err(error) => codec_decode_error(lua, "JSON_DECODE_FAILED", error),
+                }
             })?,
         )?;
         json_api.set(
@@ -362,9 +363,10 @@ impl LuaRuntime {
         yaml_api.set(
             "decode",
             self.lua.create_function(|lua, text: String| {
-                let value: JsonValue =
-                    serde_yaml::from_str(&text).map_err(mlua::Error::external)?;
-                lua.to_value(&value)
+                match serde_yaml::from_str::<JsonValue>(&text) {
+                    Ok(value) => Ok(MultiValue::from_vec(vec![lua.to_value(&value)?])),
+                    Err(error) => codec_decode_error(lua, "YAML_DECODE_FAILED", error),
+                }
             })?,
         )?;
         globals.set("yaml", yaml_api)?;
@@ -868,6 +870,21 @@ impl Drop for RawScope {
         let mut state = self.authorization.lock();
         state.depth = state.depth.saturating_sub(1);
     }
+}
+
+fn codec_decode_error(
+    lua: &Lua,
+    code: &str,
+    error: impl std::fmt::Display,
+) -> mlua::Result<MultiValue> {
+    let details = lua.create_table()?;
+    details.set("code", code)?;
+    details.set("message", error.to_string())?;
+    details.set("recoverable", false)?;
+    Ok(MultiValue::from_vec(vec![
+        Value::Nil,
+        Value::Table(details),
+    ]))
 }
 
 fn mutation_blocked(lua: &Lua, operation: &str) -> mlua::Result<MultiValue> {

@@ -245,7 +245,7 @@ fn mcp_hides_raw_calls_from_session_code() {
 }
 
 #[test]
-fn schema_backed_core_function_can_enter_raw_context() {
+fn vfs_mutation_is_blocked_in_read_only_mcp_mode() {
     let input = [
         line(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})),
         line(json!({
@@ -260,7 +260,7 @@ fn schema_backed_core_function_can_enter_raw_context() {
         .write_stdin(input)
         .assert()
         .success()
-        .stdout(predicates::str::contains("proof.txt"));
+        .stdout(predicates::str::contains("GUARDED_TOOL_REQUIRED"));
 }
 
 #[test]
