@@ -311,24 +311,49 @@ impl LuaRuntime {
         json_api.set(
             "encode",
             self.lua
-                .create_function(|_, (value, pretty): (Value, Option<bool>)| {
-                    let value = lua_value_to_json(value).map_err(mlua::Error::external)?;
+                .create_function(|lua, (value, pretty): (Value, Option<bool>)| {
+                    let value = match lua_value_to_json(value) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            let (value, err) =
+                                lua_error(lua, "JSON_ENCODE_FAILED", error.to_string(), false)?;
+                            return Ok(MultiValue::from_vec(vec![value, err]));
+                        }
+                    };
                     let encoded = if pretty.unwrap_or(false) {
                         serde_json::to_string_pretty(&value)
                     } else {
                         serde_json::to_string(&value)
+                    };
+                    match encoded {
+                        Ok(encoded) => Ok(MultiValue::from_vec(vec![Value::String(
+                            lua.create_string(&encoded)?,
+                        )])),
+                        Err(error) => {
+                            let (value, err) =
+                                lua_error(lua, "JSON_ENCODE_FAILED", error.to_string(), false)?;
+                            Ok(MultiValue::from_vec(vec![value, err]))
+                        }
                     }
-                    .map_err(mlua::Error::external)?;
-                    Ok(encoded)
                 })?,
         )?;
         json_api.set(
             "decode",
-            self.lua.create_function(|lua, text: String| {
-                match serde_json::from_str::<JsonValue>(&text) {
-                    Ok(value) => Ok(MultiValue::from_vec(vec![json_value_to_lua(lua, &value)?])),
+            self.lua.create_function(|lua, value: Value| match value {
+                Value::String(text) => match text.to_str() {
+                    Ok(text) => match serde_json::from_str::<JsonValue>(&text) {
+                        Ok(value) => {
+                            Ok(MultiValue::from_vec(vec![json_value_to_lua(lua, &value)?]))
+                        }
+                        Err(error) => codec_decode_error(lua, "JSON_DECODE_FAILED", error),
+                    },
                     Err(error) => codec_decode_error(lua, "JSON_DECODE_FAILED", error),
-                }
+                },
+                _ => codec_decode_error(
+                    lua,
+                    "INVALID_FIELD_VALUE",
+                    "json.decode: json_string must be a string",
+                ),
             })?,
         )?;
         json_api.set(
@@ -356,17 +381,41 @@ impl LuaRuntime {
         yaml_api.set(
             "encode",
             self.lua.create_function(|lua, value: Value| {
-                let value: JsonValue = lua.from_value(value)?;
-                serde_yaml::to_string(&value).map_err(mlua::Error::external)
+                let value = match lua_value_to_json(value) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let (value, err) =
+                            lua_error(lua, "YAML_ENCODE_FAILED", error.to_string(), false)?;
+                        return Ok(MultiValue::from_vec(vec![value, err]));
+                    }
+                };
+                match serde_yaml::to_string(&value) {
+                    Ok(encoded) => Ok(MultiValue::from_vec(vec![Value::String(
+                        lua.create_string(&encoded)?,
+                    )])),
+                    Err(error) => {
+                        let (value, err) =
+                            lua_error(lua, "YAML_ENCODE_FAILED", error.to_string(), false)?;
+                        Ok(MultiValue::from_vec(vec![value, err]))
+                    }
+                }
             })?,
         )?;
         yaml_api.set(
             "decode",
-            self.lua.create_function(|lua, text: String| {
-                match serde_yaml::from_str::<JsonValue>(&text) {
-                    Ok(value) => Ok(MultiValue::from_vec(vec![lua.to_value(&value)?])),
+            self.lua.create_function(|lua, value: Value| match value {
+                Value::String(text) => match text.to_str() {
+                    Ok(text) => match serde_yaml::from_str::<JsonValue>(&text) {
+                        Ok(value) => Ok(MultiValue::from_vec(vec![lua.to_value(&value)?])),
+                        Err(error) => codec_decode_error(lua, "YAML_DECODE_FAILED", error),
+                    },
                     Err(error) => codec_decode_error(lua, "YAML_DECODE_FAILED", error),
-                }
+                },
+                _ => codec_decode_error(
+                    lua,
+                    "INVALID_FIELD_VALUE",
+                    "yaml.decode: yaml_string must be a string",
+                ),
             })?,
         )?;
         globals.set("yaml", yaml_api)?;
@@ -518,8 +567,9 @@ impl LuaRuntime {
                 let Ok(original) = namespace.get::<mlua::Function>(name.as_str()) else {
                     continue;
                 };
-                let readonly = descriptor.get::<Option<bool>>("readonly")?.unwrap_or(true);
-                let guarded = !readonly;
+                let guarded = descriptor
+                    .get::<Option<bool>>("guarded")?
+                    .unwrap_or(!descriptor.get::<Option<bool>>("readonly")?.unwrap_or(true));
                 let iterator = descriptor
                     .get::<Option<String>>("returns_contract")?
                     .as_deref()

@@ -69,6 +69,9 @@ function async_task.wait(task_id, timeout_ms)
   end
 
   timeout_ms = timeout_ms or 295000
+  if type(timeout_ms) ~= "number" or timeout_ms < 0 or timeout_ms == math.huge or timeout_ms ~= math.floor(timeout_ms) then
+    return nil, { code = "VALIDATION", message = "timeout_ms must be a non-negative integer", recoverable = false }
+  end
   return sys.task.wait(task_id, timeout_ms)
 end
 
@@ -171,7 +174,7 @@ return result
       name = "cancel",
       signature = "(task_id)",
       returns_contract = "core.result",
-      readonly = true,
+      guarded = true,
       params = {
         { name = "task_id", type = "string", description = "Task identifier" }
       },

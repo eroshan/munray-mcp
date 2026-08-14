@@ -14,6 +14,22 @@ fn kv_supports_namespaced_crud_and_sorted_keys() {
 }
 
 #[test]
+fn kv_put_returns_a_structured_error_for_unsupported_values() {
+    let runtime = LuaRuntime::new(None).unwrap();
+    let result = runtime
+        .execute(
+            "local value, err = kv.put('invalid-value', 'function', function() end); return {value == nil, err.code, type(err.message)}",
+            ExecutionMode::Guarded,
+            "<test>",
+        )
+        .unwrap();
+    assert_eq!(
+        result.result,
+        serde_json::json!([true, "KV_VALUE_INVALID", "string"])
+    );
+}
+
+#[test]
 fn kv_has_no_core_cache_semantics() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime

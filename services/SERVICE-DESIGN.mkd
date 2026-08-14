@@ -163,13 +163,13 @@ The core enforces execution mode:
 - **Read-only**: safe-by-default tool for broad exposure
 - **Guarded**: explicit opt-in tool for writes; may require operator confirmation
 
-Service-pack Lua must not implement any execution-mode validation (no `sys.exec_mode()` branching, no Lua-side allow/deny lists). The only Lua-side mutation signal is `__schema.functions[].readonly = false`; Go core uses schema metadata to wrap/enforce guarded calls. Raw primitives are internal-only and must be used only from schema-backed public wrappers.
+Service-pack Lua must not implement any execution-mode validation (no `sys.exec_mode()` branching, no Lua-side allow/deny lists). The Lua-side mutation signal is `__schema.functions[].guarded = true`; Rust core uses schema metadata to wrap/enforce guarded calls. Raw primitives are internal-only and must be used only from schema-backed public wrappers.
 
 ### 5.1 Mark Guarded Functions in Schema
 
 Every guarded function must be marked:
 
-- `__schema.functions[].readonly = false`
+- `__schema.functions[].guarded = true`
 
 This allows:
 

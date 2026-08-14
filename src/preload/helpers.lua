@@ -13,7 +13,7 @@ helpers.__schema = {
 			signature = "(iterator, opts)",
 			returns_contract = "core.result",
 			readonly = true,
-			description = "Collect iterator results into an array of tuple rows. Each row contains all values returned by one iterator step. Options: limit (max rows), max_pages (pagination limit), filter (predicate function), transform (map function)",
+			description = "Collect iterator results into an array of tuple rows. Each row contains all values returned by one iterator step; when opts.transform is supplied, its return values are inserted unchanged instead. Options: limit (max rows), max_pages (pagination limit), filter (predicate function), transform (map function)",
 			params = {
 				{ name = "iterator", type = "Iterator" },
 				{
@@ -273,6 +273,14 @@ if err2 then error(err2.message) end
 
 -- Shallow copy a table
 function helpers.copy(t)
+	if type(t) ~= "table" then
+		return nil, {
+			code = "INVALID_FIELD_VALUE",
+			message = "helpers.copy: t must be a table",
+			recoverable = false,
+		}
+	end
+
 	local result = {}
 	for k, v in pairs(t) do
 		result[k] = v
@@ -427,6 +435,21 @@ end
 
 -- Filter array by predicate
 function helpers.filter(arr, pred)
+	if type(arr) ~= "table" then
+		return nil, {
+			code = "INVALID_FIELD_VALUE",
+			message = "helpers.filter: arr must be a table",
+			recoverable = false,
+		}
+	end
+	if type(pred) ~= "function" then
+		return nil, {
+			code = "INVALID_FIELD_VALUE",
+			message = "helpers.filter: pred must be a function",
+			recoverable = false,
+		}
+	end
+
 	local result = empty_array()
 	for i, v in ipairs(arr) do
 		if pred(v, i) then
@@ -438,6 +461,21 @@ end
 
 -- Map array through function
 function helpers.map(arr, fn)
+	if type(arr) ~= "table" then
+		return nil, {
+			code = "INVALID_FIELD_VALUE",
+			message = "helpers.map: arr must be a table",
+			recoverable = false,
+		}
+	end
+	if type(fn) ~= "function" then
+		return nil, {
+			code = "INVALID_FIELD_VALUE",
+			message = "helpers.map: fn must be a function",
+			recoverable = false,
+		}
+	end
+
 	local result = empty_array()
 	for i, v in ipairs(arr) do
 		result[i] = fn(v, i)
@@ -447,6 +485,21 @@ end
 
 -- Find first match
 function helpers.find(arr, pred)
+	if type(arr) ~= "table" then
+		return nil, {
+			code = "INVALID_FIELD_VALUE",
+			message = "helpers.find: arr must be a table",
+			recoverable = false,
+		}
+	end
+	if type(pred) ~= "function" then
+		return nil, {
+			code = "INVALID_FIELD_VALUE",
+			message = "helpers.find: pred must be a function",
+			recoverable = false,
+		}
+	end
+
 	for i, v in ipairs(arr) do
 		if pred(v, i) then return v, nil end
 	end
@@ -493,6 +546,14 @@ end
 
 -- Get keys of a table
 function helpers.keys(t)
+	if type(t) ~= "table" then
+		return nil, {
+			code = "INVALID_FIELD_VALUE",
+			message = "helpers.keys: t must be a table",
+			recoverable = false,
+		}
+	end
+
 	local result = {}
 	for k in pairs(t) do
 		table.insert(result, k)
@@ -568,7 +629,7 @@ end
 --   limit: maximum number of rows to collect
 --   max_pages: maximum number of pages to fetch (if iterator supports pagination metadata)
 --   filter: function(item) -> boolean to filter items
---   transform: function(item) -> transformed_item to transform items
+--   transform: function(tuple, index) -> transformed_item; transformed items are inserted unchanged (not wrapped as tuple rows)
 -- Throws on iterator errors with added context
 function helpers.collect(iterator, opts)
 	if type(iterator) ~= "function" then

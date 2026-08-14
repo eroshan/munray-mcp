@@ -376,7 +376,7 @@ Current behavior:
 
 - at most 10 running tasks are admitted per runtime;
 - each task starts an unbounded native thread;
-- CLI task cancellation is observed by the process polling loop;
+- `async_task.cancel` is a guarded operation because it mutates task state; CLI task cancellation is observed by the process polling loop;
 - HTTP/GraphQL task closures ignore their cancellation token, so cancellation changes visible state but does not abort the request;
 - `async_task.wait` polls every 20 ms and defaults to 295 seconds;
 - completed task records have no retention cleanup; and

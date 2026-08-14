@@ -13,6 +13,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
+use crate::runtime::lua_error;
+
 const MAX_NAME_BYTES: usize = 1_024;
 const MAX_SOURCE_BYTES: usize = 10 * 1024 * 1024;
 static STORES: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<Connection>>>>> = OnceLock::new();
@@ -489,7 +491,17 @@ pub(crate) fn register_lua(lua: &Lua, raw: &mlua::Table, store: Store) -> Result
             let value = values.next().unwrap_or(Value::Nil);
             let options = values.next();
             let (content_type, created_at_s, expires_at_s) = parse_kv_options(options)?;
-            let value: JsonValue = lua.from_value(value).map_err(mlua::Error::external)?;
+            let value: JsonValue = match lua.from_value(value) {
+                Ok(value) => value,
+                Err(error) => {
+                    return lua_error(
+                        lua,
+                        "KV_VALUE_INVALID",
+                        format!("value cannot be stored as JSON: {error}"),
+                        false,
+                    );
+                }
+            };
             match storage.put_kv(
                 &namespace,
                 &key,

@@ -293,6 +293,64 @@ print(keys[1], keys[2], keys[3])
 }
 
 #[test]
+fn helpers_collection_functions_return_structured_errors_for_non_tables() {
+    let script = r#"
+for _, call in ipairs({
+  function() return helpers.map(42, function(x) return x end) end,
+  function() return helpers.filter(42, function(x) return true end) end,
+  function() return helpers.find(42, function(x) return true end) end,
+  function() return helpers.copy(42) end,
+}) do
+  local value, err = call()
+  print(value == nil, err and err.code, type(err and err.message))
+end
+"#;
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .write_stdin(script)
+        .assert()
+        .success()
+        .stdout("true\tINVALID_FIELD_VALUE\tstring\n".repeat(4));
+}
+
+#[test]
+fn helpers_collection_functions_return_structured_errors_for_invalid_callbacks() {
+    let script = r#"
+for _, call in ipairs({
+  function() return helpers.map({1}, 42) end,
+  function() return helpers.filter({1}, false) end,
+  function() return helpers.find({1}, nil) end,
+}) do
+  local value, err = call()
+  print(value == nil, err and err.code, type(err and err.message))
+end
+"#;
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .write_stdin(script)
+        .assert()
+        .success()
+        .stdout("true\tINVALID_FIELD_VALUE\tstring\n".repeat(3));
+}
+
+#[test]
+fn helpers_keys_returns_a_structured_error_for_non_tables() {
+    let script = r#"
+local value, err = helpers.keys(42)
+print(value == nil, err and err.code, type(err and err.message))
+"#;
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .write_stdin(script)
+        .assert()
+        .success()
+        .stdout("true\tINVALID_FIELD_VALUE\tstring\n");
+}
+
+#[test]
 fn helpers_string_predicates_return_structured_errors_for_nil_inputs() {
     let script = r#"
 local contains_result, contains_err = helpers.contains(nil, "x")

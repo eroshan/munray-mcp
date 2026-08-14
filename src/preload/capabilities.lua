@@ -187,7 +187,7 @@ local function validate_schema(s)
 			return false, "__schema.functions[" .. i .. "] must be a table"
 		end
 
-		local required = { "path", "name", "signature", "returns_contract", "description", "readonly", "returns_typed" }
+		local required = { "path", "name", "signature", "returns_contract", "description", "returns_typed" }
 		for _, k in ipairs(required) do
 			if fn[k] == nil then
 				return false, "missing required field: functions[" .. i .. "]." .. k
@@ -212,8 +212,11 @@ local function validate_schema(s)
 		if type(fn.description) ~= "string" then
 			return false, "functions[" .. i .. "].description must be a string"
 		end
-		if type(fn.readonly) ~= "boolean" then
-			return false, "functions[" .. i .. "].readonly must be boolean"
+		if fn.guarded ~= nil and type(fn.guarded) ~= "boolean" then
+			return false, "functions[" .. i .. "].guarded must be boolean"
+		end
+		if fn.guarded == nil and type(fn.readonly) ~= "boolean" then
+			return false, "functions[" .. i .. "] must declare guarded as boolean"
 		end
 
 		if fn.params ~= nil and type(fn.params) ~= "table" then
@@ -477,6 +480,10 @@ local function build_namespace_tree(value_builder, opts)
 	return tree
 end
 
+local function is_guarded(fn)
+	return fn.guarded == true or fn.readonly == false
+end
+
 -- capabilities.ai_context(opts)
 function capabilities.ai_context(_)
 	local d = discover()
@@ -504,7 +511,7 @@ function capabilities.ai_context(_)
 
 	local namespaces_table = build_namespace_tree(function(fn)
 		local summary = fn.signature
-		if not fn.readonly then
+		if is_guarded(fn) then
 			summary = summary .. "*"
 		end
 		return summary .. " -> " .. return_summary(fn)
@@ -588,7 +595,7 @@ function capabilities.schema(namespace)
 			signature = fn.signature,
 			returns_contract = fn.returns_contract,
 			description = fn.description,
-			readonly = fn.readonly,
+			guarded = is_guarded(fn),
 			params = fn.params,
 			returns_typed = fn.returns_typed or {},
 			yields = fn.yields,
@@ -617,7 +624,7 @@ function capabilities.schemas(opts)
 	return build_namespace_tree(function(fn)
 		return {
 			signature = fn.signature,
-			readonly = fn.readonly,
+			guarded = is_guarded(fn),
 			description = fn.description,
 			returns_contract = fn.returns_contract,
 			yields = fn.yields,

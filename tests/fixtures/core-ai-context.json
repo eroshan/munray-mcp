@@ -51,7 +51,7 @@
   ],
   "namespaces": {
     "async_task": {
-      "cancel": "(task_id) -> core.result",
+      "cancel": "(task_id)* -> core.result",
       "result": "(task_id, opts?) -> core.result",
       "status": "(task_id) -> core.result",
       "wait": "(task_id, timeout_ms?) -> core.result"

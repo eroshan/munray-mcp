@@ -22,6 +22,51 @@ fn async_cli_json_can_be_waited_for() {
 }
 
 #[test]
+fn cancel_schema_declares_guarded_policy() {
+    let runtime = LuaRuntime::new(None).unwrap();
+    let result = runtime
+        .execute(
+            "local schema = capabilities.schema('async_task'); for _, fn in ipairs(schema.functions) do if fn.name == 'cancel' then return fn.guarded end end",
+            ExecutionMode::ReadOnly,
+            "<test>",
+        )
+        .unwrap();
+    assert_eq!(result.result, true);
+}
+
+#[test]
+fn cancelling_a_task_requires_guarded_execution() {
+    let runtime = LuaRuntime::new(None).unwrap();
+    let result = runtime
+        .execute(
+            "local value, err = async_task.cancel('missing'); return {value == nil, err.code}",
+            ExecutionMode::ReadOnly,
+            "<test>",
+        )
+        .unwrap();
+    assert_eq!(
+        result.result,
+        serde_json::json!([true, "GUARDED_TOOL_REQUIRED"])
+    );
+}
+
+#[test]
+fn wait_returns_a_structured_error_for_an_invalid_timeout() {
+    let runtime = LuaRuntime::new(None).unwrap();
+    let result = runtime
+        .execute(
+            "local value, err = async_task.wait('none', -1); return {value == nil, err.code, type(err.message)}",
+            ExecutionMode::ReadOnly,
+            "<test>",
+        )
+        .unwrap();
+    assert_eq!(
+        result.result,
+        serde_json::json!([true, "VALIDATION", "string"])
+    );
+}
+
+#[test]
 fn unknown_task_returns_not_found() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime
@@ -86,7 +131,7 @@ fn cancelling_async_cli_stops_the_subprocess() {
             &format!(
                 "local id, err = sys.cli.start_text('sh', {{'-c', 'sleep 0.2; printf done > \"$1\"', 'sh', {marker_lua}}}); if err then error(err.message) end; return async_task.cancel(id)"
             ),
-            ExecutionMode::ReadOnly,
+            ExecutionMode::Guarded,
             "<test>",
         )
         .unwrap();
