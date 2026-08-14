@@ -1,7 +1,7 @@
 # munray-mcp
 
 Rust host for a persistent Lua runtime exposed through the
-official Rust MCP SDK. Existing service-pack Lua is loaded unchanged.
+official Rust MCP SDK.
 
 ```sh
 cargo build --release
@@ -25,8 +25,7 @@ some-command | target/release/munray-mcp ingest \
 ```
 
 The repository includes the canonical service packs under `services/`:
-Compass, Confluence, GCloud, GitLab, Jira, and Terraform. Their original Lua
-logic and tests live together in each pack.
+Their original Lua logic and tests live together in each pack.
 
 ```sh
 # Build, lint, run Rust tests, then run every service-pack Lua test.
@@ -89,12 +88,3 @@ service links are installed under `~/.local/share/munray-mcp/services`. Override
 At runtime, service-directory precedence is `--svc-dir`, then
 `MUNRAY_MCP_SVC_DIR`, then `$MUNRAY_MCP_HOME/services`. If `MUNRAY_MCP_HOME` is unset,
 it defaults to `$HOME/.local/share/munray-mcp`.
-
-## Migration
-
-Use the Rust binary name `munray-mcp`, rename host environment variables to the
-`MUNRAY_MCP_*` forms above, and point `--svc-dir` at this repository’s `services/`
-directory. MCP clients should call `runLuaScript` and
-`runGuardedLuaScript`. Existing service Lua APIs and test behavior remain
-the same; no interactive REPL is provided, so pipe Lua to `munray-mcp` or use the
-`run` subcommand.

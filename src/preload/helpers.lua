@@ -9,7 +9,6 @@ helpers.__schema = {
 	functions = {
 		{
 			name = "collect",
-			path = "helpers.collect",
 			signature = "(iterator, opts)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -85,7 +84,6 @@ print("Taken", #taken)
 		},
 		{
 			name = "copy",
-			path = "helpers.copy",
 			signature = "(t)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -95,7 +93,6 @@ print("Taken", #taken)
 		},
 		{
 			name = "filter",
-			path = "helpers.filter",
 			signature = "(arr, pred)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -105,7 +102,6 @@ print("Taken", #taken)
 		},
 		{
 			name = "map",
-			path = "helpers.map",
 			signature = "(arr, fn)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -115,7 +111,6 @@ print("Taken", #taken)
 		},
 		{
 			name = "find",
-			path = "helpers.find",
 			signature = "(arr, pred)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -125,7 +120,6 @@ print("Taken", #taken)
 		},
 		{
 			name = "starts_with",
-			path = "helpers.starts_with",
 			signature = "(str, prefix)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -135,7 +129,6 @@ print("Taken", #taken)
 		},
 		{
 			name = "contains",
-			path = "helpers.contains",
 			signature = "(str, substr)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -145,7 +138,6 @@ print("Taken", #taken)
 		},
 		{
 			name = "keys",
-			path = "helpers.keys",
 			signature = "(t)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -155,7 +147,6 @@ print("Taken", #taken)
 		},
 		{
 			name = "get_in",
-			path = "helpers.get_in",
 			signature = "(obj, path, default)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -186,7 +177,6 @@ assert(summary == "Hello")
 		},
 		{
 			name = "first",
-			path = "helpers.first",
 			signature = "(iterator)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -217,7 +207,6 @@ local pipeline = pipeline_row and pipeline_row[1]
 		},
 		{
 			name = "take",
-			path = "helpers.take",
 			signature = "(iterator, n)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -243,7 +232,6 @@ if err2 then error(err2.message) end
 		},
 		{
 			name = "page",
-			path = "helpers.page",
 			signature = "(iterator, page_num, page_size)",
 			returns_contract = "core.result",
 			readonly = true,

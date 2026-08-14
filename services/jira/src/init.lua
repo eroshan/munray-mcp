@@ -22,7 +22,6 @@ jira.__schema = {
     functions = {
         {
             name = "ready",
-            path = "jira.ready",
             signature = "()",
             returns_contract = "core.result",
             description = "Check if Jira is configured and ready to handle requests by verifying authentication",

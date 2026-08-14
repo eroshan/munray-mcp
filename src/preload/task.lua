@@ -93,7 +93,6 @@ async_task.__schema = {
   description = "Task management API for background execution",
   functions = {
     {
-      path = "async_task.status",
       name = "status",
       signature = "(task_id)",
       returns_contract = "core.result",
@@ -112,7 +111,6 @@ async_task.__schema = {
       description = "Returns the current status of a task"
     },
     {
-      path = "async_task.result",
       name = "result",
       signature = "(task_id, opts?)",
       returns_contract = "core.result",
@@ -141,7 +139,6 @@ return result
 ]]
     },
     {
-      path = "async_task.wait",
       name = "wait",
       signature = "(task_id, timeout_ms?)",
       returns_contract = "core.result",
@@ -170,7 +167,6 @@ return result
 ]]
     },
     {
-      path = "async_task.cancel",
       name = "cancel",
       signature = "(task_id)",
       returns_contract = "core.result",

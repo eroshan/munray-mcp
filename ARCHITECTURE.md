@@ -297,7 +297,7 @@ Return conversion rules are:
 
 ### 10.1 Schema mutation gate
 
-After trusted loading, Rust walks schema namespace tables and records immutable operation metadata in a per-runtime registry. It replaces each matching public function with a Rust closure that captures the original Lua function, mutation policy, return contract, and operation path. It rejects captured guarded functions in read-only mode and wraps iterators so each step has the same authorization.
+After trusted loading, Rust walks schema namespace tables and records immutable operation metadata in a per-runtime registry. It derives each operation path as `<fully-qualified namespace>.<function name>`, then replaces each matching public function with a Rust closure that captures the original Lua function, mutation policy, return contract, and operation path. It rejects captured guarded functions in read-only mode and wraps iterators so each step has the same authorization.
 
 Mutation policy is never read from mutable Lua descriptors at call time. Session code receives cloned public tables, so descriptor/function reassignment cannot alter trusted globals or registry entries. Human-approved `snippets.save` and `snippets.delete` update the Rust registry and refresh those public clones immediately.
 

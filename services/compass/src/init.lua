@@ -16,7 +16,6 @@ compass.__schema = {
 	functions = {
 		{
 			name = "ready",
-			path = "compass.ready",
 			signature = "()",
 			returns_contract = "core.result",
 			description = "Check whether Compass is configured and reachable via the GraphQL gateway.",
@@ -29,7 +28,6 @@ compass.__schema = {
 		},
 		{
 			name = "components",
-			path = "compass.components",
 			signature = "(ids, opts)",
 			returns_contract = "core.result",
 			description = "Fetch up to 30 Compass components by id.",
@@ -45,7 +43,6 @@ compass.__schema = {
 		},
 		{
 			name = "component",
-			path = "compass.component",
 			signature = "(id, opts)",
 			returns_contract = "core.result",
 			description = "Fetch a single Compass component by id.",
@@ -61,7 +58,6 @@ compass.__schema = {
 		},
 		{
 			name = "searchComponents",
-			path = "compass.searchComponents",
 			signature = "(query, opts)",
 			returns_contract = "core.iter",
 			yields = "CompassComponent",
@@ -77,7 +73,6 @@ compass.__schema = {
 		},
 		{
 			name = "componentLogs",
-			path = "compass.componentLogs",
 			signature = "(component_id, opts)",
 			returns_contract = "core.iter",
 			yields = "CompassComponentLog",

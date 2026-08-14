@@ -10,7 +10,6 @@ gitlab.repo.__schema = {
 	functions = {
 		{
 			name = "get",
-			path = "gitlab.repo.get",
 			signature = "(repo)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -20,7 +19,6 @@ gitlab.repo.__schema = {
 		},
 		{
 			name = "branches",
-			path = "gitlab.repo.branches",
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "Branch",
@@ -31,7 +29,6 @@ gitlab.repo.__schema = {
 		},
 		{
 			name = "tree",
-			path = "gitlab.repo.tree",
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "TreeEntry",
@@ -45,7 +42,6 @@ gitlab.repo.__schema = {
 		},
 		{
 			name = "compare",
-			path = "gitlab.repo.compare",
 			signature = "(repo, from, to)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -55,7 +51,6 @@ gitlab.repo.__schema = {
 		},
 		{
 			name = "file",
-			path = "gitlab.repo.file",
 			signature = "(repo, path, ref)",
 			returns_contract = "core.result",
 			readonly = true,

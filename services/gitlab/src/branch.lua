@@ -11,7 +11,6 @@ gitlab.branch.__schema = {
 	functions = {
 		{
 			name = "create",
-			path = "gitlab.branch.create",
 			signature = "(repo, data)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -27,7 +26,6 @@ gitlab.branch.__schema = {
 		},
 		{
 			name = "get",
-			path = "gitlab.branch.get",
 			signature = "(repo, branch_name)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -43,7 +41,6 @@ gitlab.branch.__schema = {
 		},
 		{
 			name = "list",
-			path = "gitlab.branch.list",
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "Branch",
@@ -59,7 +56,6 @@ gitlab.branch.__schema = {
 		},
 		{
 			name = "delete",
-			path = "gitlab.branch.delete",
 			signature = "(repo, branch_name)",
 			returns_contract = "core.result",
 			readonly = false,

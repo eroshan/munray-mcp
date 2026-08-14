@@ -7,7 +7,6 @@ jira.issue.__schema = {
     functions = {
         {
             name = "get",
-            path = "jira.issue.get",
             signature = "(issue_key, opts)",
             returns_contract = "core.result",
             description = "Get a single issue by key",
@@ -23,7 +22,6 @@ jira.issue.__schema = {
         },
         {
             name = "list",
-            path = "jira.issue.list",
             signature = "(project_key, opts)",
             returns_contract = "core.iter",
             yields = "Issue",
@@ -39,7 +37,6 @@ jira.issue.__schema = {
         },
         {
             name = "find",
-            path = "jira.issue.find",
             signature = "(query, opts)",
             returns_contract = "core.iter",
             yields = "Issue",
@@ -55,7 +52,6 @@ jira.issue.__schema = {
         },
         {
             name = "create",
-            path = "jira.issue.create",
             signature = "(data)",
             returns_contract = "core.result",
             description = "Create a new issue using shorthand fields or a native Jira create payload",
@@ -70,7 +66,6 @@ jira.issue.__schema = {
         },
         {
             name = "update",
-            path = "jira.issue.update",
             signature = "(key, data, opts)",
             returns_contract = "core.result",
             description = "Update an existing issue (fields/update) and return the refreshed issue",
@@ -87,7 +82,6 @@ jira.issue.__schema = {
         },
         {
             name = "transition",
-            path = "jira.issue.transition",
             signature = "(key, transition_id, opts)",
             returns_contract = "core.result",
             description = "Transition an issue to a different status/workflow state",
@@ -104,7 +98,6 @@ jira.issue.__schema = {
         },
         {
             name = "subtasks",
-            path = "jira.issue.subtasks",
             signature = "(parent_key, opts)",
             returns_contract = "core.result",
             description = "Get all subtasks of a parent issue",
@@ -120,7 +113,6 @@ jira.issue.__schema = {
         },
         {
             name = "parent",
-            path = "jira.issue.parent",
             signature = "(child_key, opts)",
             returns_contract = "core.result",
             description = "Get the parent issue of a subtask",
@@ -136,7 +128,6 @@ jira.issue.__schema = {
         },
         {
             name = "hierarchy",
-            path = "jira.issue.hierarchy",
             signature = "(issue_key, opts)",
             returns_contract = "core.result",
             description = "Get the full issue hierarchy (parent and children)",

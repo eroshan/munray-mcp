@@ -557,10 +557,10 @@ impl LuaRuntime {
                 {
                     continue;
                 }
-                let operation = descriptor
-                    .get::<Option<String>>("path")?
-                    .filter(|path| !path.is_empty())
-                    .unwrap_or_else(|| format!("{schema_namespace}.{name}"));
+                // Operation paths are core-owned identities. Deriving them from the
+                // fully-qualified schema namespace keeps nested resources distinct and
+                // prevents service metadata from overriding metric/policy keys.
+                let operation = format!("{schema_namespace}.{name}");
                 if registry.lock().contains_key(&operation) {
                     bail!("duplicate schema function path: {operation}");
                 }
@@ -866,11 +866,9 @@ impl LuaRuntime {
                         let descriptor = descriptor?;
                         let name = descriptor.get::<Option<String>>("name")?;
                         if let Some(name) = name.filter(|name| !name.is_empty()) {
-                            let path = descriptor
-                                .get::<Option<String>>("path")?
-                                .filter(|path| !path.is_empty())
-                                .unwrap_or_else(|| format!("{namespace}.{name}"));
-                            out.push(path);
+                            // Match wrapper registration: paths are derived rather than
+                            // accepted from mutable service schema metadata.
+                            out.push(format!("{namespace}.{name}"));
                         }
                     }
                 }

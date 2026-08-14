@@ -19,7 +19,6 @@ gitlab.job.__schema = {
 	functions = {
 		{
 			name = "get",
-			path = "gitlab.job.get",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -29,7 +28,6 @@ gitlab.job.__schema = {
 		},
 		{
 			name = "list",
-			path = "gitlab.job.list",
 			signature = "(repo, pipeline_id, opts)",
 			returns_contract = "core.iter",
 			yields = "Job",
@@ -44,7 +42,6 @@ gitlab.job.__schema = {
 		},
 		{
 			name = "trigger_jobs",
-			path = "gitlab.job.trigger_jobs",
 			signature = "(repo, pipeline_id, opts)",
 			returns_contract = "core.iter",
 			yields = "Job",
@@ -59,7 +56,6 @@ gitlab.job.__schema = {
 		},
 		{
 			name = "log",
-			path = "gitlab.job.log",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -69,7 +65,6 @@ gitlab.job.__schema = {
 		},
 		{
 			name = "retry",
-			path = "gitlab.job.retry",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -79,7 +74,6 @@ gitlab.job.__schema = {
 		},
 		{
 			name = "play",
-			path = "gitlab.job.play",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -89,7 +83,6 @@ gitlab.job.__schema = {
 		},
 		{
 			name = "pipeline",
-			path = "gitlab.job.pipeline",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -99,7 +92,6 @@ gitlab.job.__schema = {
 		},
 		{
 			name = "artifact_download",
-			path = "gitlab.job.artifact_download",
 			signature = "(repo, id, opts)",
 			returns_contract = "core.result",
 			readonly = true,

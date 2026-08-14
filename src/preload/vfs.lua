@@ -32,7 +32,6 @@ vfs.__schema = {
 	functions = {
 		{
 			name = "mkdirp",
-			path = "vfs.mkdirp",
 			signature = "(path)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -42,7 +41,6 @@ vfs.__schema = {
 		},
 		{
 			name = "ensure_parent",
-			path = "vfs.ensure_parent",
 			signature = "(path)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -52,7 +50,6 @@ vfs.__schema = {
 		},
 		{
 			name = "write_text",
-			path = "vfs.write_text",
 			signature = "(path, text, opts?)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -72,7 +69,6 @@ print("Wrote", info.size, "bytes to", info.path)
 		},
 		{
 			name = "read_text",
-			path = "vfs.read_text",
 			signature = "(path, opts?)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -85,7 +81,6 @@ print("Wrote", info.size, "bytes to", info.path)
 		},
 		{
 			name = "ls",
-			path = "vfs.ls",
 			signature = "(path, opts?)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -98,7 +93,6 @@ print("Wrote", info.size, "bytes to", info.path)
 		},
 		{
 			name = "stat",
-			path = "vfs.stat",
 			signature = "(path)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -108,7 +102,6 @@ print("Wrote", info.size, "bytes to", info.path)
 		},
 		{
 			name = "expose",
-			path = "vfs.expose",
 			signature = "(paths)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -129,7 +122,6 @@ print("Exposed:", exposed.files[1].host_path)
 		},
 		{
 			name = "to_txt",
-			path = "vfs.to_txt",
 			signature = "(path, opts?)",
 			returns_contract = "core.result",
 			readonly = true,

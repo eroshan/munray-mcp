@@ -62,7 +62,6 @@ if type(json) == "table" and json.__schema == nil then
 		functions = {
 			{
 				name = "encode",
-				path = "json.encode",
 				signature = "(value, [pretty])",
 				returns_contract = "core.result",
 				readonly = true,
@@ -72,7 +71,6 @@ if type(json) == "table" and json.__schema == nil then
 			},
 			{
 				name = "decode",
-				path = "json.decode",
 				signature = "(json_string)",
 				returns_contract = "core.result",
 				readonly = true,
@@ -92,7 +90,6 @@ if type(yaml_ns) == "table" and yaml_ns.__schema == nil then
 		functions = {
 			{
 				name = "encode",
-				path = "yaml.encode",
 				signature = "(value, [pretty])",
 				returns_contract = "core.result",
 				readonly = true,
@@ -102,7 +99,6 @@ if type(yaml_ns) == "table" and yaml_ns.__schema == nil then
 			},
 			{
 				name = "decode",
-				path = "yaml.decode",
 				signature = "(yaml_string)",
 				returns_contract = "core.result",
 				readonly = true,
@@ -187,16 +183,13 @@ local function validate_schema(s)
 			return false, "__schema.functions[" .. i .. "] must be a table"
 		end
 
-		local required = { "path", "name", "signature", "returns_contract", "description", "returns_typed" }
+		local required = { "name", "signature", "returns_contract", "description", "returns_typed" }
 		for _, k in ipairs(required) do
 			if fn[k] == nil then
 				return false, "missing required field: functions[" .. i .. "]." .. k
 			end
 		end
 
-		if type(fn.path) ~= "string" or fn.path == "" then
-			return false, "functions[" .. i .. "].path must be a non-empty string"
-		end
 		if type(fn.name) ~= "string" or fn.name == "" then
 			return false, "functions[" .. i .. "].name must be a non-empty string"
 		end
@@ -440,7 +433,8 @@ local function build_namespace_tree(value_builder, opts)
 					end
 					if ok and opts.search then
 						local p = opts.search:lower()
-						ok = (fn.path:lower():find(p, 1, true) ~= nil) or (fn.description:lower():find(p, 1, true) ~= nil)
+						local operation = ns .. "." .. fn.name
+						ok = (operation:lower():find(p, 1, true) ~= nil) or (fn.description:lower():find(p, 1, true) ~= nil)
 					end
 
 					if ok then

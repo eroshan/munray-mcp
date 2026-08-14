@@ -10,7 +10,6 @@ gitlab.pipeline.__schema = {
 	functions = {
 		{
 			name = "get",
-			path = "gitlab.pipeline.get",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -20,7 +19,6 @@ gitlab.pipeline.__schema = {
 		},
 		{
 			name = "list",
-			path = "gitlab.pipeline.list",
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "Pipeline",
@@ -31,7 +29,6 @@ gitlab.pipeline.__schema = {
 		},
 		{
 			name = "cancel",
-			path = "gitlab.pipeline.cancel",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -41,7 +38,6 @@ gitlab.pipeline.__schema = {
 		},
 		{
 			name = "retry",
-			path = "gitlab.pipeline.retry",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -51,7 +47,6 @@ gitlab.pipeline.__schema = {
 		},
 		{
 			name = "create",
-			path = "gitlab.pipeline.create",
 			signature = "(repo, data)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -64,7 +59,6 @@ gitlab.pipeline.__schema = {
 		},
 		{
 			name = "jobs",
-			path = "gitlab.pipeline.jobs",
 			signature = "(repo, pipeline_id, opts)",
 			returns_contract = "core.iter",
 			yields = "Job",
@@ -81,7 +75,6 @@ gitlab.pipeline.__schema = {
 		},
 		{
 			name = "trigger_jobs",
-			path = "gitlab.pipeline.trigger_jobs",
 			signature = "(repo, pipeline_id, opts)",
 			returns_contract = "core.iter",
 			yields = "Job",
@@ -98,7 +91,6 @@ gitlab.pipeline.__schema = {
 		},
 		{
 			name = "downstream_pipelines",
-			path = "gitlab.pipeline.downstream_pipelines",
 			signature = "(repo, pipeline_id, opts)",
 			returns_contract = "core.iter",
 			yields = "Pipeline",
@@ -115,7 +107,6 @@ gitlab.pipeline.__schema = {
 		},
 		{
 			name = "merge_request",
-			path = "gitlab.pipeline.merge_request",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
 			readonly = true,

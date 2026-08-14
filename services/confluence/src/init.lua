@@ -20,7 +20,6 @@ confluence.__schema = {
 	functions = {
 		{
 			name = "ready",
-			path = "confluence.ready",
 			signature = "()",
 			returns_contract = "core.result",
 			description = "Check if the Confluence host is reachable by probing the /wiki/home page",

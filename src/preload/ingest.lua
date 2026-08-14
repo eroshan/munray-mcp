@@ -22,7 +22,6 @@ print(text)
 	functions = {
 		{
 			name = "get",
-			path = "ingest.get",
 			signature = "(token)",
 			returns_contract = "core.result",
 			readonly = true,

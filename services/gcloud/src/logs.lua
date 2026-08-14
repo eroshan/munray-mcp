@@ -92,7 +92,6 @@ gcloud.logs.__schema = {
 	functions = {
 		{
 			name = "get",
-			path = "gcloud.logs.get",
 			signature = "(project, filter, [opts])",
 			returns_contract = "core.async.result",
 			async = {

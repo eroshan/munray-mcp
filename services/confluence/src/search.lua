@@ -117,7 +117,6 @@ confluence.search.__schema = {
 	functions = {
 		{
 			name = "find",
-			path = "confluence.search.find",
 			signature = "(cql, opts?)",
 			description = "Search Confluence with CQL. Returns a lazy iterator of search results.",
 			readonly = true,
@@ -143,7 +142,6 @@ return results
 		},
 		{
 			name = "pages",
-			path = "confluence.search.pages",
 			signature = "(query, opts?)",
 			description = "Search Confluence pages by plain-text query. Builds page-scoped CQL and returns a lazy iterator of search results.",
 			readonly = true,

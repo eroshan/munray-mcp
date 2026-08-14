@@ -7,7 +7,6 @@ jira.field.__schema = {
     functions = {
         {
             name = "list",
-            path = "jira.field.list",
             signature = "(opts)",
             returns_contract = "core.iter",
             yields = "Field",

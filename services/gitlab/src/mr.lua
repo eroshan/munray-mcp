@@ -15,7 +15,6 @@ gitlab.mr.__schema = {
 	functions = {
 		{
 			name = "get",
-			path = "gitlab.mr.get",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -25,7 +24,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "list",
-			path = "gitlab.mr.list",
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "MergeRequest",
@@ -36,7 +34,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "diff",
-			path = "gitlab.mr.diff",
 			signature = "(repo, iid, opts)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -53,7 +50,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "create",
-			path = "gitlab.mr.create",
 			signature = "(repo, data)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -63,7 +59,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "update",
-			path = "gitlab.mr.update",
 			signature = "(repo, iid, data, opts)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -73,7 +68,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "approve",
-			path = "gitlab.mr.approve",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -83,7 +77,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "merge",
-			path = "gitlab.mr.merge",
 			signature = "(repo, iid, opts)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -93,7 +86,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "close",
-			path = "gitlab.mr.close",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -103,7 +95,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "reopen",
-			path = "gitlab.mr.reopen",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -113,7 +104,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "pipelines",
-			path = "gitlab.mr.pipelines",
 			signature = "(repo, iid, opts)",
 			returns_contract = "core.iter",
 			yields = "Pipeline",
@@ -124,7 +114,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "discussions",
-			path = "gitlab.mr.discussions",
 			signature = "(repo, iid, opts)",
 			returns_contract = "core.iter",
 			yields = "Discussion",
@@ -139,7 +128,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "discussion",
-			path = "gitlab.mr.discussion",
 			signature = "(repo, iid, discussion_id)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -156,7 +144,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "discussion_create",
-			path = "gitlab.mr.discussion_create",
 			signature = "(repo, iid, body, position)",
 			returns_contract = "core.result",
 			readonly = false,
@@ -174,7 +161,6 @@ gitlab.mr.__schema = {
 		},
 		{
 			name = "diff_refs",
-			path = "gitlab.mr.diff_refs",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
 			readonly = true,

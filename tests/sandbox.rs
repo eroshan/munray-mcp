@@ -71,7 +71,7 @@ function beta.get() return "beta", nil end
 }
 
 #[test]
-fn duplicate_schema_paths_fail_runtime_construction() {
+fn schema_paths_do_not_override_derived_operation_paths() {
     let services = tempfile::tempdir().unwrap();
     let src = services.path().join("demo/src");
     fs::create_dir_all(&src).unwrap();
@@ -87,15 +87,10 @@ function alpha.two() return true, nil end
 "#,
     )
     .unwrap();
-    let error = match LuaRuntime::new_session(Some(services.path())) {
-        Ok(_) => panic!("duplicate schema paths must fail runtime construction"),
-        Err(error) => error,
-    };
-    assert!(
-        error
-            .to_string()
-            .contains("duplicate schema function path: duplicate.path")
-    );
+    let runtime = LuaRuntime::new_session(Some(services.path())).unwrap();
+    let paths = runtime.eligible_function_paths().unwrap();
+    assert!(paths.contains(&"alpha.one".to_owned()));
+    assert!(paths.contains(&"alpha.two".to_owned()));
 }
 
 #[test]

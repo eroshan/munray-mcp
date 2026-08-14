@@ -7,7 +7,6 @@ jira.project.__schema = {
     functions = {
         {
             name = "get",
-            path = "jira.project.get",
             signature = "(project_key, opts)",
             returns_contract = "core.result",
             description = "Get a project by key",
@@ -23,7 +22,6 @@ jira.project.__schema = {
         },
         {
             name = "list",
-            path = "jira.project.list",
             signature = "(opts)",
             returns_contract = "core.iter",
             yields = "Project",

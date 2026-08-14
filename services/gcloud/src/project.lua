@@ -186,7 +186,6 @@ gcloud.project.__schema = {
 	functions = {
 		{
 			name = "list",
-			path = "gcloud.project.list",
 			signature = "([opts])",
 			returns_contract = "core.result",
 			description = "List GCP projects from the cached full project list by default. Set force_gcp_read = true to rescan GCP and refresh the cache; project_pattern applies local Lua-pattern matching to the cached results.",

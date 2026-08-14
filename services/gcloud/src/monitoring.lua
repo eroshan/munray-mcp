@@ -565,7 +565,6 @@ gcloud.monitoring.alert.__schema = {
 	functions = {
 		{
 			name = "list",
-			path = "gcloud.monitoring.alert.list",
 			signature = "(project, opts?)",
 			description = "List Cloud Monitoring alerts via gcloud alpha monitoring alerts list.",
 			readonly = true,
@@ -591,7 +590,6 @@ return alerts
 		},
 		{
 			name = "describe",
-			path = "gcloud.monitoring.alert.describe",
 			signature = "(alert, opts?)",
 			description = "Describe a Cloud Monitoring alert via gcloud alpha monitoring alerts describe. Accepts a fully qualified alert resource name, or a short alert ID when opts.project is provided.",
 			readonly = true,
@@ -630,7 +628,6 @@ gcloud.monitoring.policy.__schema = {
 	functions = {
 		{
 			name = "list",
-			path = "gcloud.monitoring.policy.list",
 			signature = "(project, opts?)",
 			description = "List Cloud Monitoring alerting policies via gcloud alpha monitoring policies list.",
 			readonly = true,
@@ -656,7 +653,6 @@ return policies
 		},
 		{
 			name = "describe",
-			path = "gcloud.monitoring.policy.describe",
 			signature = "(policy, opts?)",
 			description = "Describe a Cloud Monitoring alerting policy via gcloud alpha monitoring policies describe. Accepts a fully qualified policy resource name, or a short policy ID when opts.project is provided.",
 			readonly = true,
@@ -695,7 +691,6 @@ gcloud.monitoring.descriptor.__schema = {
 	functions = {
 		{
 			name = "list",
-			path = "gcloud.monitoring.descriptor.list",
 			signature = "(project, opts?)",
 			description = "List Cloud Monitoring metric descriptors using the Monitoring REST API and gcloud-generated bearer auth.",
 			readonly = true,
@@ -739,7 +734,6 @@ gcloud.monitoring.series.__schema = {
 	functions = {
 		{
 			name = "list",
-			path = "gcloud.monitoring.series.list",
 			signature = "(project, opts)",
 			description = "List Cloud Monitoring time series using the Monitoring REST API and gcloud-generated bearer auth. Empty API responses without a timeSeries field are treated as successful empty result sets.",
 			readonly = true,

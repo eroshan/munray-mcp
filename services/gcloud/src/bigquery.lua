@@ -736,7 +736,6 @@ gcloud.bigquery.__schema = {
 	functions = {
 		{
 			name = "query",
-			path = "gcloud.bigquery.query",
 			signature = "(project, sql, [opts])",
 			returns_contract = "core.result",
 			description = "Execute BigQuery SQL query or validate with dry-run. Blocks mutations (INSERT/UPDATE/DELETE/etc). Default 1GB billing limit for safety. Returns up to 100 rows by default; set opts.max_rows to override.",
@@ -828,7 +827,6 @@ return rows
 		,
 		{
 			name = "describe",
-			path = "gcloud.bigquery.describe",
 			signature = "(project, table, [opts])",
 			returns_contract = "core.result",
 			description = "Show BigQuery table/view metadata. Returns table info by default; when opts.schema=true returns schema-only.",
@@ -896,7 +894,6 @@ return info
 		},
 		{
 			name = "show",
-			path = "gcloud.bigquery.show",
 			signature = "(project, table, [opts])",
 			returns_contract = "core.result",
 			description = "DEPRECATED: Use gcloud.bigquery.describe() instead. This is a backward compatibility alias.",

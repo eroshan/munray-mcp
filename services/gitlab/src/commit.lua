@@ -10,7 +10,6 @@ gitlab.commit.__schema = {
 	functions = {
 		{
 			name = "get",
-			path = "gitlab.commit.get",
 			signature = "(repo, sha)",
 			returns_contract = "core.result",
 			readonly = true,
@@ -20,7 +19,6 @@ gitlab.commit.__schema = {
 		},
 		{
 			name = "list",
-			path = "gitlab.commit.list",
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "Commit",
@@ -31,7 +29,6 @@ gitlab.commit.__schema = {
 		},
 		{
 			name = "diff",
-			path = "gitlab.commit.diff",
 			signature = "(repo, sha, opts)",
 			returns_contract = "core.result",
 			readonly = true,

@@ -13,7 +13,6 @@ gitlab.search.__schema = {
 	functions = {
 		{
 			name = "find",
-			path = "gitlab.search.find",
 			signature = "(scope, query, opts)",
 			returns_contract = "core.iter",
 			yields = "SearchItem",

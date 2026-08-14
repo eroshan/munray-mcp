@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "munray://capabilities.schema.json",
+  "title": "munray capabilities schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["namespace", "service", "functions"],
+  "properties": {
+    "namespace": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fully-qualified namespace, e.g. 'service.object' or 'helpers'."
+    },
+    "service": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Service root, e.g. 'service'"
+    },
+
+    "summary": { "type": "string" },
+    "description": { "type": "string" },
+    "deprecated": { "type": "boolean" },
+
+    "functions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FunctionSchema" }
+    },
+
+    "resources": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Optional list of sub-namespaces exposed by a service root (table of contents)."
+    },
+
+    "types": {
+      "type": "object",
+      "description": "Type-name -> type definition (small shapes to keep discovery compact).",
+      "additionalProperties": { "$ref": "#/$defs/TypeDef" }
+    },
+
+    "examples": {
+      "type": "string",
+      "description": "Namespace-level runnable Lua snippet (string only)."
+    }
+  },
+
+  "$defs": {
+    "FunctionSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "signature",
+        "returns_contract",
+        "description",
+        "guarded",
+        "returns_typed"
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\(.*\\)$",
+          "description": "Arglist-only signature, e.g. '(repo, iid, opts?)'."
+        },
+
+        "description": { "type": "string" },
+        "summary": { "type": "string" },
+        "deprecated": { "type": "boolean" },
+
+        "mutating": { "type": "boolean" },
+
+        "returns_contract": {
+          "type": "string",
+          "enum": ["core.result", "core.iter", "core.async.result"]
+        },
+
+        "yields": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required if returns_contract == core.iter. Type name yielded by iterator."
+        },
+
+        "params": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ParamDef" }
+        },
+
+        "returns_typed": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ReturnDef" }
+        },
+
+        "async": { "$ref": "#/$defs/AsyncDef" },
+
+        "examples": {
+          "type": "string",
+          "description": "Method-level runnable Lua snippet."
+        },
+
+        "origin": {
+          "type": "string",
+          "description": "Internal provenance marker for dynamically-installed functions."
+        }
+      },
+
+      "allOf": [
+        {
+          "if": {
+            "properties": { "returns_contract": { "const": "core.iter" } },
+            "required": ["returns_contract"]
+          },
+          "then": {
+            "required": ["yields"],
+            "properties": {
+              "returns_typed": {
+                "type": "array",
+                "minItems": 1,
+                "prefixItems": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["name", "type"],
+                    "properties": {
+                      "name": { "type": "string" },
+                      "type": { "const": "Iterator" },
+                      "description": { "type": "string" },
+                      "schema": { "type": "string" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "returns_contract": { "const": "core.async.result" } },
+            "required": ["returns_contract"]
+          },
+          "then": {
+            "required": ["async"]
+          }
+        }
+      ]
+    },
+
+    "ParamDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "optional": { "type": "boolean" },
+        "description": { "type": "string" },
+        "schema": {
+          "$ref": "#/$defs/ParamSchemaDef",
+          "description": "Nested option schema for params like opts (map of optionName -> OptionFieldDef)."
+        }
+      }
+    },
+
+    "ParamSchemaDef": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/OptionFieldDef" }
+    },
+
+    "OptionFieldDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "optional": { "type": "boolean" },
+        "description": { "type": "string" },
+        "schema": { "$ref": "#/$defs/ParamSchemaDef" }
+      }
+    },
+
+    "ReturnDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "schema": {
+          "type": "string",
+          "description": "Optional compact inline schema string."
+        }
+      }
+    },
+
+    "AsyncDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "handle"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["task"] },
+        "handle": { "type": "string", "minLength": 1 },
+        "sequential_calls": { "type": "boolean" },
+        "usage": { "type": "string" }
+      }
+    },
+
+    "TypeDef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "shape": { "type": "string" }
+      },
+      "anyOf": [
+        { "required": ["shape"] },
+        { "required": ["description"] }
+      ]
+    }
+  }
+}
