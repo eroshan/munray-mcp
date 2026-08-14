@@ -1,12 +1,10 @@
-use std::{thread, time::Duration};
-
 use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
-fn store_supports_crud_and_sorted_keys() {
+fn kv_supports_namespaced_crud_and_sorted_keys() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime.execute(
-        "store.put('note','b',{value=2}); store.put('note','a',{value=1}); local keys=store.keys('note'); local value=store.get('note','a'); return {keys=keys,value=value.value,count=store.len('note')} ",
+        "kv.put('note','b',{value=2}); kv.put('note','a',{value=1}); local keys=kv.keys('note'); local value=kv.get('note','a'); return {keys=keys,value=value.value,count=kv.len('note')}",
         ExecutionMode::Mutating,
         "<test>",
     ).unwrap();
@@ -16,22 +14,14 @@ fn store_supports_crud_and_sorted_keys() {
 }
 
 #[test]
-fn cache_entries_expire() {
+fn kv_has_no_core_cache_semantics() {
     let runtime = LuaRuntime::new(None).unwrap();
-    runtime
-        .execute(
-            "store.cache_set('short',{ok=true},0)",
-            ExecutionMode::ReadOnly,
-            "<test>",
-        )
-        .unwrap();
-    thread::sleep(Duration::from_millis(1));
     let result = runtime
         .execute(
-            "return store.cache_get('short')",
+            "return kv.cache_get == nil and kv.cache_set == nil",
             ExecutionMode::ReadOnly,
             "<test>",
         )
         .unwrap();
-    assert!(result.result.is_null());
+    assert_eq!(result.result, true);
 }

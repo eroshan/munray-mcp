@@ -140,11 +140,11 @@ local function project_list(opts)
 
 	local cache_key = cache_key_for_project_list()
 	if not force_gcp then
-		local cached, cache_err = _raw.store.get(STORE_TYPE, cache_key)
+		local cached, cache_err = _raw.kv.get(STORE_TYPE, cache_key)
 		if cache_err then
 			return nil, {
 				code = "STORE_ERROR",
-				message = "_raw.store.get failed: " .. (cache_err.message or tostring(cache_err)),
+				message = "_raw.kv.get failed: " .. (cache_err.message or tostring(cache_err)),
 				context = { key = cache_key },
 				recoverable = true,
 			}
@@ -167,11 +167,8 @@ local function project_list(opts)
 	end
 
 	-- Persist result into store (never expires). This is best-effort: in readonly
-	-- execution mode, _raw.store.put will be blocked, but we still return the live result.
-	local _, put_err = _raw.store.put(STORE_TYPE, cache_key, result, {
-		content_type = "json",
-		description = "Cached result for gcloud.project.list (never expires)",
-	})
+	-- execution mode, _raw.kv.put will be blocked, but we still return the live result.
+	local _, put_err = _raw.kv.put(STORE_TYPE, cache_key, result)
 	if put_err then
 		-- Non-fatal: caller still gets the live result.
 		-- (If executed in mutating mode, this will succeed.)

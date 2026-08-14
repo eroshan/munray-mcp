@@ -1,4 +1,4 @@
-local full_io, full_os, full_require = io, os, require
+local full_io, full_os, full_package, full_require = io, os, package, require
 local raw_exec_mode = _raw.exec_mode
 local raw_context_depth, raw_bootstrap, raw_direct_allowed = 0, true, false
 
@@ -37,10 +37,10 @@ local function with_raw_context(fn, ...)
 end
 
 local function with_service_stdlib(fn, ...)
-  local previous_io, previous_os, previous_require = io, os, require
-  io, os, require = full_io, full_os, full_require
+  local previous_io, previous_os, previous_package, previous_require = io, os, package, require
+  io, os, package, require = full_io, full_os, full_package, full_require
   local values = table.pack(pcall(fn, ...))
-  io, os, require = previous_io, previous_os, previous_require
+  io, os, package, require = previous_io, previous_os, previous_package, previous_require
   if not values[1] then error(values[2], 0) end
   return table.unpack(values, 2, values.n)
 end
@@ -178,7 +178,7 @@ local function install_path(root, path, schema)
   end
 end
 
-function _install_security_wrappers()
+local function install_security_wrappers()
   local seen = {}
   local function metric_number(value)
     if type(value) == "number" then return value end
@@ -239,6 +239,27 @@ function _install_security_wrappers()
     for key, child in pairs(namespace) do if key ~= "__schema" and type(child) == "table" then visit(child) end end
   end
   for _, namespace in pairs(_G) do visit(namespace) end
+end
+
+-- Rust invokes this once after trusted bootstrap, then removes it before any
+-- session code can run. Dynamic snippet updates use the lexical function above.
+_G.__install_security_wrappers = install_security_wrappers
+-- Captured by Rust during bootstrap and then removed from globals. The bridge
+-- keeps raw-context state lexical to this chunk.
+_G.__authorized_invoke = function(fn, external, metric_path, ...)
+  local function invoke(...)
+    if type(metric_path) == "string" and metric_path ~= "" then
+      pcall(function()
+        local key = "fn." .. metric_path .. ".calls"
+        local current = _raw.store.get("metrics", key)
+        if type(current) ~= "number" then current = tonumber(current) or 0 end
+        _raw.store.put("metrics", key, current + 1)
+      end)
+    end
+    if external then return with_service_stdlib(fn, ...) end
+    return fn(...)
+  end
+  return with_raw_context(invoke, ...)
 end
 
 vfs = vfs or {}
@@ -348,7 +369,6 @@ function store.put(kind, key, value, opts)
     }
     namespace.__schema.functions[#namespace.__schema.functions+1] = descriptor
     dynamic_snippets[key] = {namespace=namespace,name=name,descriptor=descriptor}
-    _install_security_wrappers()
     return stored, nil
   elseif kind == "schema" then
     local stored, raw_err = _raw.store.put(kind, key, value, opts)
@@ -374,7 +394,6 @@ function store.put(kind, key, value, opts)
         }
       end
       entry.descriptor.origin = "local_store"
-      _install_security_wrappers()
     end
     return stored, nil
   elseif kind == "example" then

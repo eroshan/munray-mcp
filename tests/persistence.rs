@@ -10,7 +10,7 @@ fn saved_snippet_survives_a_new_cli_process() {
         .unwrap()
         .args(["--store-path", store.to_str().unwrap()])
         .write_stdin(
-            r#"local ok, err = store.save_snippet({path="local_tools.answer", code="function() return 42 end", description="Answers"}); if err then error(err.message) end; return ok"#,
+            r#"local ok, err = snippets.save({path="local_tools.answer", code="function() return 42 end", description="Answers"}); if err then error(err.message) end; return ok"#,
         )
         .assert()
         .success();

@@ -46,8 +46,8 @@ pub struct LuaRuntime {
     output: Arc<Mutex<String>>,
     mode: Arc<Mutex<ExecutionMode>>,
     store: Arc<Mutex<StoreMap>>,
-    cache_expiry: Arc<Mutex<HashMap<String, std::time::Instant>>>,
     allowed_cli: Arc<Mutex<Vec<String>>>,
+    authorized_invoke: Arc<Mutex<Option<mlua::Function>>>,
     _vfs: Arc<tempfile::TempDir>,
     _exposures: Arc<Mutex<Vec<tempfile::TempDir>>>,
     _blobs: crate::blob::BlobStore,
@@ -98,8 +98,8 @@ impl LuaRuntime {
             output: Arc::new(Mutex::new(String::new())),
             mode: Arc::new(Mutex::new(ExecutionMode::ReadOnly)),
             store,
-            cache_expiry: Arc::new(Mutex::new(HashMap::new())),
             allowed_cli: Arc::new(Mutex::new(Vec::new())),
+            authorized_invoke: Arc::new(Mutex::new(None)),
             _vfs: Arc::clone(&vfs),
             _exposures: Arc::clone(&exposures),
             _blobs: blobs.clone(),
@@ -111,9 +111,10 @@ impl LuaRuntime {
             runtime.discover_allowed_cli()?;
         }
         runtime.load_stored_snippets()?;
+        runtime.install_security_wrappers()?;
         runtime
             .lua
-            .load("if _install_security_wrappers then _install_security_wrappers() end")
+            .load("__install_security_wrappers = nil; __authorized_invoke = nil; __legacy_snippet_save = nil; __snippet_pending = nil")
             .exec()?;
         runtime
             .lua
@@ -158,8 +159,8 @@ impl LuaRuntime {
                 .create_function(move |_, ()| Ok(mode.lock().as_str()))?,
         )?;
         for namespace in [
-            "auth", "blob", "cli", "graphql", "http", "ingest", "secrets", "store", "task", "test",
-            "url", "vfs",
+            "auth", "blob", "cli", "graphql", "http", "ingest", "kv", "secrets", "store", "task",
+            "test", "url", "vfs",
         ] {
             raw.set(namespace, self.lua.create_table()?)?;
         }
@@ -325,49 +326,6 @@ impl LuaRuntime {
             })?,
         )?;
         let store = Arc::clone(&self.store);
-        let expiry = Arc::clone(&self.cache_expiry);
-        let path = store_path.clone();
-        store_api.set(
-            "cache_set",
-            self.lua
-                .create_function(move |lua, (key, value, ttl): (String, Value, u64)| {
-                    let value: JsonValue = lua.from_value(value)?;
-                    let mut values = store.lock();
-                    values.insert(("cache".into(), key.clone()), value);
-                    persist_if_configured(path.as_deref(), &values)
-                        .map_err(mlua::Error::external)?;
-                    expiry.lock().insert(
-                        key,
-                        std::time::Instant::now() + std::time::Duration::from_secs(ttl),
-                    );
-                    Ok((true, Value::Nil))
-                })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        let expiry = Arc::clone(&self.cache_expiry);
-        let path = store_path.clone();
-        store_api.set(
-            "cache_get",
-            self.lua.create_function(move |lua, key: String| {
-                let expired = expiry
-                    .lock()
-                    .get(&key)
-                    .is_some_and(|deadline| std::time::Instant::now() >= *deadline);
-                if expired {
-                    expiry.lock().remove(&key);
-                    let mut values = store.lock();
-                    values.remove(&("cache".into(), key));
-                    persist_if_configured(path.as_deref(), &values)
-                        .map_err(mlua::Error::external)?;
-                    return Ok((Value::Nil, Value::Nil));
-                }
-                match store.lock().get(&("cache".into(), key)).cloned() {
-                    Some(value) => Ok((lua.to_value(&value)?, Value::Nil)),
-                    None => Ok((Value::Nil, Value::Nil)),
-                }
-            })?,
-        )?;
-        let store = Arc::clone(&self.store);
         let path = store_path;
         store_api.set(
             "put",
@@ -381,6 +339,11 @@ impl LuaRuntime {
                     Ok((true, Value::Nil))
                 })?,
         )?;
+        let kv_api: mlua::Table = raw_table.get("kv")?;
+        for pair in store_api.pairs::<String, Value>() {
+            let (name, value) = pair?;
+            kv_api.set(name, value)?;
+        }
 
         let cli_api: mlua::Table = raw_table.get("cli")?;
         let allowed = Arc::clone(&self.allowed_cli);
@@ -482,24 +445,63 @@ impl LuaRuntime {
             .load(include_str!("preload.lua"))
             .set_name("@core/preload.lua")
             .exec()?;
+        *self.authorized_invoke.lock() = Some(self.lua.globals().get("__authorized_invoke")?);
         for (name, source) in [
             ("@core/helpers.lua", include_str!("preload/helpers.lua")),
             ("@core/errutil.lua", include_str!("preload/errutil.lua")),
         ] {
             self.lua.load(source).set_name(name).exec()?;
         }
-        let runtime_store: mlua::Table = self.lua.globals().get("store")?;
         self.lua
             .load(include_str!("preload/store.lua"))
-            .set_name("@core/store.lua")
+            .set_name("@core/kv.lua")
             .exec()?;
-        let reference_store: mlua::Table = self.lua.globals().get("store")?;
-        for pair in runtime_store.pairs::<String, Value>() {
-            let (name, value) = pair?;
-            if matches!(value, Value::Function(_)) {
-                reference_store.set(name, value)?;
-            }
-        }
+        self.lua
+            .load(
+                r#"
+                local legacy_store = store
+                snippets = {
+                  save = function(def) return __legacy_snippet_save(def) end,
+                  delete = function(path)
+                    store = legacy_store
+                    local values = table.pack(pcall(legacy_store.delete, "fn", path))
+                    store = nil
+                    if not values[1] then error(values[2], 0) end
+                    return table.unpack(values, 2, values.n)
+                  end,
+                  get = function(path)
+                    local value, err = _raw.store.get("fn", path)
+                    if err then return nil, err end
+                    return value, nil
+                  end,
+                  list = function()
+                    return _raw.store.keys("fn")
+                  end,
+                  __schema = { namespace="snippets", service="core", functions=(function()
+                    local function d(name, mutating, signature, description)
+                      return {name=name,path="snippets."..name,mutating=mutating,signature=signature,returns_contract="core.result",description=description,returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}}
+                    end
+                    return {
+                      d("save", true, "(definition)", "Save and immediately register a trusted snippet"),
+                      d("delete", true, "(path)", "Delete a snippet from this runtime and persistence"),
+                      d("get", false, "(path)", "Get stored snippet source"),
+                      d("list", false, "()", "List stored snippet paths"),
+                    }
+                  end)()}, 
+                }
+                __legacy_snippet_save = function(def)
+                  store = legacy_store
+                  local values = table.pack(pcall(legacy_store.save_snippet, def))
+                  store = nil
+                  if not values[1] then error(values[2], 0) end
+                  return table.unpack(values, 2, values.n)
+                end
+                store = nil
+                "#,
+            )
+            .set_name("@core/snippets.lua")
+            .exec()?;
+        self.install_snippet_save()?;
         self.lua
             .load(include_str!("preload/test.lua"))
             .set_name("@core/test.lua")
@@ -527,6 +529,135 @@ impl LuaRuntime {
         self.lua
             .load("if _install_raw_guards then _install_raw_guards() end")
             .exec()?;
+        Ok(())
+    }
+
+    /// Replace trusted, schema-declared functions with Rust-created closures.
+    /// Policy is copied now; later mutation of a Lua descriptor cannot change it.
+    fn install_security_wrappers(&self) -> Result<()> {
+        let globals = self.lua.globals();
+        let invoke = self
+            .authorized_invoke
+            .lock()
+            .clone()
+            .context("authorized invocation bridge is unavailable")?;
+        let mut namespaces = Vec::new();
+        let mut seen = Vec::new();
+        for pair in globals.pairs::<Value, Value>() {
+            let (_, value) = pair?;
+            collect_schema_namespaces(value, &mut seen, &mut namespaces)?;
+        }
+
+        for namespace in namespaces {
+            let schema: mlua::Table = namespace.get("__schema")?;
+            let service = schema.get::<Option<String>>("service")?;
+            let external = service.as_deref().is_some_and(|value| value != "core");
+            let functions: mlua::Table = schema.get("functions")?;
+            for descriptor in functions.sequence_values::<mlua::Table>() {
+                let descriptor = descriptor?;
+                let Some(name) = descriptor.get::<Option<String>>("name")? else {
+                    continue;
+                };
+                if descriptor
+                    .get::<Option<bool>>("__mcp_server_wrapped")?
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
+                let Ok(original) = namespace.get::<mlua::Function>(name.as_str()) else {
+                    continue;
+                };
+                let mutating = descriptor.get::<Option<bool>>("mutating")?.unwrap_or(false);
+                let iterator = descriptor
+                    .get::<Option<String>>("returns_contract")?
+                    .as_deref()
+                    == Some("core.iter");
+                let operation = descriptor
+                    .get::<Option<String>>("path")?
+                    .filter(|path| !path.is_empty())
+                    .unwrap_or_else(|| name.clone());
+                let mode = Arc::clone(&self.mode);
+                let invoke = invoke.clone();
+                let wrapper = self.lua.create_function(move |lua, args: MultiValue| {
+                    if mutating && *mode.lock() != ExecutionMode::Mutating {
+                        let error = lua.create_table()?;
+                        error.set("code", "MUTATING_BLOCKED")?;
+                        error.set("message", "Mutating operation blocked in read-only mode")?;
+                        error.set("recoverable", false)?;
+                        let context = lua.create_table()?;
+                        context.set("operation", operation.as_str())?;
+                        error.set("context", context)?;
+                        return Ok(MultiValue::from_vec(vec![Value::Nil, Value::Table(error)]));
+                    }
+                    let mut values = MultiValue::with_capacity(args.len() + 3);
+                    values.push_back(Value::Function(original.clone()));
+                    values.push_back(Value::Boolean(external));
+                    values.push_back(Value::String(lua.create_string(&operation)?));
+                    values.extend(args);
+                    let mut results: MultiValue = invoke.call(values)?;
+                    if iterator {
+                        if let Some(Value::Function(original_iterator)) = results.front().cloned() {
+                            let invoke = invoke.clone();
+                            let iterator_wrapper =
+                                lua.create_function(move |_, args: MultiValue| {
+                                    let mut values = MultiValue::with_capacity(args.len() + 3);
+                                    values.push_back(Value::Function(original_iterator.clone()));
+                                    values.push_back(Value::Boolean(external));
+                                    values.push_back(Value::Nil);
+                                    values.extend(args);
+                                    invoke.call::<MultiValue>(values)
+                                })?;
+                            *results.front_mut().expect("iterator result is present") =
+                                Value::Function(iterator_wrapper);
+                        }
+                    }
+                    Ok(results)
+                })?;
+                namespace.set(name, wrapper)?;
+                descriptor.set("__mcp_server_wrapped", true)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// `snippets.save` is a Rust-owned handoff: trusted Lua prepares and
+    /// persists the definition, then Rust installs its immutable wrapper.
+    fn install_snippet_save(&self) -> Result<()> {
+        let globals = self.lua.globals();
+        let snippets: mlua::Table = globals.get("snippets")?;
+        let prepare: mlua::Function = globals.get("__legacy_snippet_save")?;
+        let invoke = self
+            .authorized_invoke
+            .lock()
+            .clone()
+            .context("authorized invocation bridge is unavailable")?;
+        let save = self
+            .lua
+            .create_function(move |lua, definition: mlua::Table| {
+                let path: String = definition.get("path").map_err(|_| {
+                    mlua::Error::runtime("snippet definition requires a string path")
+                })?;
+                let mut values = MultiValue::with_capacity(4);
+                values.push_back(Value::Function(prepare.clone()));
+                values.push_back(Value::Boolean(false));
+                values.push_back(Value::Nil);
+                values.push_back(Value::Table(definition));
+                let result: MultiValue = invoke.call(values)?;
+                if matches!(result.front(), Some(Value::Nil)) {
+                    return Ok(result);
+                }
+                // The trusted preparer created the function and descriptor. Install
+                // all currently-unwrapped descriptors; existing wrappers are marked.
+                // This closure cannot borrow `self`, so invoke the Rust bootstrap
+                // installer through a one-shot marker handled after this call.
+                let pending = lua.create_table()?;
+                pending.set("path", path)?;
+                lua.globals().set("__snippet_pending", pending)?;
+                Ok(result)
+            })?;
+        snippets.set("save", save)?;
+        // The pending marker is consumed by `execute_with_timeout` before the
+        // result is returned to session code.
         Ok(())
     }
 
@@ -558,23 +689,17 @@ impl LuaRuntime {
         self.lua
             .load(
                 r#"
+                -- Service packs, preload code, and approved snippets have already
+                -- loaded. Session-generated code receives only the pure Lua globals.
+                -- Do not leave module-loading aliases behind: they can load Lua or
+                -- native code outside the supported public API.
                 io = nil
-                if package and package.loaded then
-                  package.loaded.io = nil
-                  package.loaded.os = nil
-                end
-                if os then
-                  local restricted = {}
-                  for key, value in pairs(os) do restricted[key] = value end
-                  for _, key in ipairs({"execute","getenv","remove","rename","setenv","tmpname","exit"}) do restricted[key] = nil end
-                  os = restricted
-                end
-                local original_require = require
-                require = function(name)
-                  if name == "io" or name == "os" then error("module " .. name .. " is disabled", 2) end
-                  return original_require(name)
-                end
+                os = nil
                 debug = nil
+                package = nil
+                require = nil
+                dofile = nil
+                loadfile = nil
                 "#,
             )
             .exec()?;
@@ -585,19 +710,21 @@ impl LuaRuntime {
         self.lua
             .load(
                 r#"
-                local function restore(kind)
-                  local keys, keys_err = _raw.store.keys(kind)
-                  if keys_err then error(keys_err.message) end
-                  for _, key in ipairs(keys) do
-                    local value, get_err = _raw.store.get(kind, key)
-                    if get_err then error(get_err.message) end
-                    local ok, put_err = store.put(kind, key, value, {content_type="lua"})
-                    if not ok then error(put_err.message) end
+                local keys, keys_err = _raw.store.keys("fn")
+                if keys_err then error(keys_err.message) end
+                for _, key in ipairs(keys) do
+                  local code, get_err = _raw.store.get("fn", key)
+                  if get_err then error(get_err.message) end
+                  local schema = _raw.store.get("schema", key)
+                  local example_expr = _raw.store.get("example", key)
+                  local example = nil
+                  if type(example_expr) == "string" then
+                    local chunk = load("return " .. example_expr, "=stored-example", "t", _G)
+                    if chunk then example = chunk() end
                   end
+                  local ok, save_err = snippets.save({path=key, code=code, schema_expr=schema, example=example})
+                  if not ok then error(save_err.message) end
                 end
-                restore("fn")
-                restore("schema")
-                restore("example")
                 "#,
             )
             .set_name("@core/restore-store.lua")
@@ -640,6 +767,15 @@ impl LuaRuntime {
         let evaluation: mlua::Result<MultiValue> = self.lua.load(code).set_name(chunk_name).eval();
         self.lua.remove_hook();
         let values = evaluation.with_context(|| format!("Lua execution failed in {chunk_name}"))?;
+        if self
+            .lua
+            .globals()
+            .get::<Option<mlua::Table>>("__snippet_pending")?
+            .is_some()
+        {
+            self.install_security_wrappers()?;
+            self.lua.globals().set("__snippet_pending", Value::Nil)?;
+        }
         let mut results = values
             .into_iter()
             .map(|value| {
@@ -764,6 +900,31 @@ impl LuaRuntime {
         runtime.set("server_id", server_id)?;
         Ok(())
     }
+}
+
+fn collect_schema_namespaces(
+    value: Value,
+    seen: &mut Vec<mlua::Table>,
+    namespaces: &mut Vec<mlua::Table>,
+) -> Result<()> {
+    let Value::Table(table) = value else {
+        return Ok(());
+    };
+    if seen.iter().any(|existing| existing == &table) {
+        return Ok(());
+    }
+    seen.push(table.clone());
+    if table.get::<Option<mlua::Table>>("__schema")?.is_some() {
+        namespaces.push(table.clone());
+    }
+    for pair in table.pairs::<Value, Value>() {
+        let (key, child) = pair?;
+        if matches!(key, Value::String(ref key) if key.as_bytes() == b"__schema") {
+            continue;
+        }
+        collect_schema_namespaces(child, seen, namespaces)?;
+    }
+    Ok(())
 }
 
 fn persistent_store(path: &Path) -> Result<Arc<Mutex<StoreMap>>> {

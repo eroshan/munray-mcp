@@ -4,7 +4,7 @@ This document is the living source of truth for **munray-mcp service packs**.
 
 Service packs are **external user-managed inputs** loaded from a services directory (`SVC_DIR`). The munray-mcp core binary is service-agnostic and provides only base runtime + raw primitives.
 
-Core architecture lives in [APP-DESIGN.mkd](../APP-DESIGN.mkd).
+Core architecture lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ---
 

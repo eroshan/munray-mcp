@@ -209,15 +209,19 @@
       "decode": "(json_string) -> core.result",
       "encode": "(value, [pretty]) -> core.result"
     },
-    "store": {
-      "cache_get": "(key) -> core.result",
-      "clear": "(type_name)* -> core.result",
-      "delete": "(type_name, key)* -> core.result",
-      "get": "(type_name, key) -> core.result",
-      "keys": "(type_name) -> core.result",
-      "len": "(type_name) -> core.result",
-      "put": "(type_name, key, value, opts?)* -> core.result",
-      "save_snippet": "(path, fn_lua, opts?) | (def)* -> core.result"
+    "kv": {
+      "clear": "(namespace)* -> core.result",
+      "delete": "(namespace, key)* -> core.result",
+      "get": "(namespace, key) -> core.result",
+      "keys": "(namespace) -> core.result",
+      "len": "(namespace) -> core.result",
+      "put": "(namespace, key, value)* -> core.result"
+    },
+    "snippets": {
+      "delete": "(path)* -> core.result",
+      "get": "(path) -> core.result",
+      "list": "() -> core.result",
+      "save": "(definition)* -> core.result"
     },
     "terraform": {
       "parse_plan": "(log) -> core.result"

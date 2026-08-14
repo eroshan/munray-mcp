@@ -252,10 +252,7 @@ impl McpServer {
                     };
                     return self.reject_mutating(request, status);
                 }
-                Err(_) => {
-                    // Preserve source behavior: if an advertised elicitation cannot
-                    // be completed, execute with the explicit mutating tool grant.
-                }
+                Err(_) => return self.reject_mutating(request, "elicitation_failed"),
             }
         }
         self.execute(request, ExecutionMode::Mutating)
