@@ -4,8 +4,8 @@
 -- Capture client from init (will be available when this executes)
 local client = gitlab._get_client()
 
--- Hardcoded group ID for five9
-local GROUP_ID = "fivn"
+-- Default group path for examples; callers may override it with opts.group_id.
+local DEFAULT_GROUP_ID = "example-group"
 
 gitlab.search.__schema = {
 	namespace = "gitlab.search",
@@ -17,11 +17,11 @@ gitlab.search.__schema = {
 			returns_contract = "core.iter",
 			yields = "SearchItem",
 			guarded = false,
-			description = "Search within the five9 group across GitLab. Returns iterator; use helpers.collect() to materialize to array. Supported scopes: 'projects', 'blobs', 'merge_requests', 'commits', 'issues', 'milestones', 'users', 'wiki_blobs', 'notes'.",
+			description = "Search within a GitLab group. Set opts.group_id to the target group path. Returns an iterator; use helpers.collect() to materialize it to an array. Supported scopes: 'projects', 'blobs', 'merge_requests', 'commits', 'issues', 'milestones', 'users', 'wiki_blobs', 'notes'.",
 			params = {
 				{ name = "scope", type = "string", description = "Search scope: 'projects', 'blobs', 'merge_requests', 'commits', 'issues', 'milestones', 'users', 'wiki_blobs', 'notes'" },
 				{ name = "query", type = "string", description = "Search term (supports filters like 'filename:*.lua' for blobs)" },
-				{ name = "opts", type = "table", optional = true, description = "Options: state, ref, order_by, sort, per_page, limit, confidential, search_type, fields, include_archived, exclude_forks" }
+				{ name = "opts", type = "table", optional = true, description = "Options: group_id, state, ref, order_by, sort, per_page, limit, confidential, search_type, fields, include_archived, exclude_forks" }
 			},
 			returns_typed = { { name = "iterator", type = "Iterator" } },
 		},
@@ -33,9 +33,10 @@ gitlab.search.__schema = {
 
 -- gitlab.search.find(scope, query, opts) -> iterator
 -- Always returns iterator; use helpers.collect() to materialize to array
--- Searches within the hardcoded five9 group
+-- Searches within the requested group, or the neutral example group by default.
 function gitlab.search.find(scope, query, opts)
 	opts = opts or {}
+	local group_id = opts.group_id or DEFAULT_GROUP_ID
 
 	-- Build query parameters
 	local query_params = {
@@ -77,6 +78,5 @@ function gitlab.search.find(scope, query, opts)
 		end
 	end
 
-	-- Use group_list with hardcoded GROUP_ID
-	return client.group_list(GROUP_ID, "search", query_params, opts)
+	return client.group_list(group_id, "search", query_params, opts)
 end

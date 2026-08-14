@@ -37,23 +37,23 @@ local has_transition = false
 for _, func in ipairs(issue_schema.functions) do
 	if func.name == "get" then
 		has_get = true
-		test.assert_eq(func.readonly, true, "issue.get should not be guarded")
+		test.assert_eq(func.guarded, false, "issue.get should not be guarded")
 	end
 	if func.name == "find" then
 		has_find = true
-		test.assert_eq(func.readonly, true, "issue.find should not be guarded")
+		test.assert_eq(func.guarded, false, "issue.find should not be guarded")
 	end
 	if func.name == "create" then
 		has_create = true
-		test.assert_eq(func.readonly, false, "issue.create should be guarded")
+		test.assert_eq(func.guarded, true, "issue.create should be guarded")
 	end
 	if func.name == "update" then
 		has_update = true
-		test.assert_eq(func.readonly, false, "issue.update should be guarded")
+		test.assert_eq(func.guarded, true, "issue.update should be guarded")
 	end
 	if func.name == "transition" then
 		has_transition = true
-		test.assert_eq(func.readonly, false, "issue.transition should be guarded")
+		test.assert_eq(func.guarded, true, "issue.transition should be guarded")
 	end
 end
 
@@ -76,7 +76,7 @@ for _, func in ipairs(field_schema.functions) do
 	if func.name == "list" then
 		has_field_list = true
 		test.assert_eq(func.signature, "(opts)", "field.list signature should match")
-		test.assert_eq(func.readonly, true, "field.list should not be guarded")
+		test.assert_eq(func.guarded, false, "field.list should not be guarded")
 		test.assert_eq(func.returns_contract, "core.iter", "field.list should return an iterator")
 		test.assert_eq(func.yields, "Field", "field.list should yield Field values")
 	end
@@ -118,15 +118,15 @@ for _, func in ipairs(issue_schema.functions) do
 	if func.name == "subtasks" then
 		has_subtasks = true
 		test.assert_eq(func.signature, "(parent_key, opts)", "subtasks signature should match")
-		test.assert_eq(func.readonly, true, "subtasks should not be guarded")
+		test.assert_eq(func.guarded, false, "subtasks should not be guarded")
 	elseif func.name == "parent" then
 		has_parent = true
 		test.assert_eq(func.signature, "(child_key, opts)", "parent signature should match")
-		test.assert_eq(func.readonly, true, "parent should not be guarded")
+		test.assert_eq(func.guarded, false, "parent should not be guarded")
 	elseif func.name == "hierarchy" then
 		has_hierarchy = true
 		test.assert_eq(func.signature, "(issue_key, opts)", "hierarchy signature should match")
-		test.assert_eq(func.readonly, true, "hierarchy should not be guarded")
+		test.assert_eq(func.guarded, false, "hierarchy should not be guarded")
 	end
 end
 

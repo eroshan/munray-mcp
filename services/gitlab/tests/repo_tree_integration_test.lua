@@ -1,27 +1,16 @@
 -- GitLab repository tree integration tests.
 --
 -- Opt in with either:
---   GITLAB_TEST_TREE=1
 --   GITLAB_TEST_TREE_REPO=<group/project>
 --
--- If GITLAB_TEST_TREE=1 is used without an explicit repo override, the tests use:
---   fivn/engineering/agentic-coding/munray-mcp
---
 -- These tests require live GitLab access and permission to read the repository.
-
-local DEFAULT_TREE_REPO = "fivn/engineering/agentic-coding/munray-mcp"
+-- Provide an explicitly authorized test repository; no repository is selected by default.
 
 local function enabled_tree_repo()
 	local explicit_repo = os.getenv("GITLAB_TEST_TREE_REPO")
 	if explicit_repo ~= nil and explicit_repo ~= "" then
 		return explicit_repo
 	end
-
-	local enabled = os.getenv("GITLAB_TEST_TREE")
-	if enabled == "1" or enabled == "true" then
-		return DEFAULT_TREE_REPO
-	end
-
 	return nil
 end
 
@@ -57,7 +46,7 @@ end
 
 local repo = enabled_tree_repo()
 if repo == nil then
-	print("SKIP: set GITLAB_TEST_TREE=1 or GITLAB_TEST_TREE_REPO to run live GitLab repo.tree integration tests")
+	print("SKIP: set GITLAB_TEST_TREE_REPO to run live GitLab repo.tree integration tests")
 	return
 end
 

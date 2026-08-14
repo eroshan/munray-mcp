@@ -43,19 +43,19 @@ local has_update = false
 for _, func in ipairs(mr_schema.functions) do
 	if func.name == "get" then
 		has_get = true
-		test.assert_eq(func.readonly, true, "mr.get should not be guarded")
+		test.assert_eq(func.guarded, false, "mr.get should not be guarded")
 	end
 	if func.name == "list" then
 		has_list = true
-		test.assert_eq(func.readonly, true, "mr.list should not be guarded")
+		test.assert_eq(func.guarded, false, "mr.list should not be guarded")
 	end
 	if func.name == "create" then
 		has_create = true
-		test.assert_eq(func.readonly, false, "mr.create should be guarded")
+		test.assert_eq(func.guarded, true, "mr.create should be guarded")
 	end
 	if func.name == "update" then
 		has_update = true
-		test.assert_eq(func.readonly, false, "mr.update should be guarded")
+		test.assert_eq(func.guarded, true, "mr.update should be guarded")
 	end
 end
 
@@ -111,7 +111,7 @@ for _, func in ipairs(repo_schema.functions) do
 	if func.name == "tree" then
 		has_tree = true
 		test.assert_eq(func.signature, "(repo, opts)", "repo.tree signature should match")
-		test.assert_eq(func.readonly, true, "repo.tree should not be guarded")
+		test.assert_eq(func.guarded, false, "repo.tree should not be guarded")
 		test.assert_eq(func.returns_contract, "core.iter", "repo.tree should return iterator contract")
 		test.assert_eq(func.yields, "TreeEntry", "repo.tree should yield TreeEntry items")
 	end
@@ -133,19 +133,19 @@ for _, func in ipairs(mr_schema.functions) do
 	if func.name == "discussions" then
 		has_discussions = true
 		test.assert_eq(func.signature, "(repo, iid, opts)", "discussions signature should match")
-		test.assert_eq(func.readonly, true, "discussions should not be guarded")
+		test.assert_eq(func.guarded, false, "discussions should not be guarded")
 	elseif func.name == "discussion" then
 		has_discussion = true
 		test.assert_eq(func.signature, "(repo, iid, discussion_id)", "discussion signature should match")
-		test.assert_eq(func.readonly, true, "discussion should not be guarded")
+		test.assert_eq(func.guarded, false, "discussion should not be guarded")
 	elseif func.name == "discussion_create" then
 		has_discussion_create = true
 		test.assert_eq(func.signature, "(repo, iid, body, position)", "discussion_create signature should match")
-		test.assert_eq(func.readonly, false, "discussion_create should be guarded")
+		test.assert_eq(func.guarded, true, "discussion_create should be guarded")
 	elseif func.name == "diff_refs" then
 		has_diff_refs = true
 		test.assert_eq(func.signature, "(repo, iid)", "diff_refs signature should match")
-		test.assert_eq(func.readonly, true, "diff_refs should not be guarded")
+		test.assert_eq(func.guarded, false, "diff_refs should not be guarded")
 	end
 end
 
@@ -178,12 +178,12 @@ for _, func in ipairs(job_schema.functions) do
 	if func.name == "play" then
 		has_play = true
 		test.assert_eq(func.signature, "(repo, id)", "play signature should match")
-		test.assert_eq(func.readonly, false, "play should be guarded")
+		test.assert_eq(func.guarded, true, "play should be guarded")
 	elseif func.name == "list" then
 		has_filtering_description = string.match(func.description or "", "filtering") ~= nil
 	elseif func.name == "artifact_download" then
 		has_artifact_download = true
-		test.assert_eq(func.readonly, true, "artifact_download should not be guarded (VFS writes allowed in readonly by policy)")
+		test.assert_eq(func.guarded, false, "artifact_download should not be guarded (VFS writes allowed in readonly by policy)")
 		test.assert_eq(func.signature, "(repo, id, opts)", "artifact_download signature should match")
 	end
 end
@@ -221,13 +221,13 @@ local has_reopen = false
 for _, func in ipairs(mr_schema.functions) do
 	if func.name == "merge" then
 		has_merge = true
-		test.assert_eq(func.readonly, false, "mr.merge should be guarded")
+		test.assert_eq(func.guarded, true, "mr.merge should be guarded")
 	elseif func.name == "close" then
 		has_close = true
-		test.assert_eq(func.readonly, false, "mr.close should be guarded")
+		test.assert_eq(func.guarded, true, "mr.close should be guarded")
 	elseif func.name == "reopen" then
 		has_reopen = true
-		test.assert_eq(func.readonly, false, "mr.reopen should be guarded")
+		test.assert_eq(func.guarded, true, "mr.reopen should be guarded")
 	end
 end
 
@@ -243,7 +243,7 @@ local has_pipeline_mr = false
 for _, func in ipairs(pipeline_schema.functions) do
 	if func.name == "merge_request" then
 		has_pipeline_mr = true
-		test.assert_eq(func.readonly, true, "pipeline.merge_request should not be guarded")
+		test.assert_eq(func.guarded, false, "pipeline.merge_request should not be guarded")
 	end
 end
 test.assert(has_pipeline_mr, "pipeline.merge_request function should exist in schema")
@@ -254,7 +254,7 @@ local has_job_pipeline = false
 for _, func in ipairs(job_schema.functions) do
 	if func.name == "pipeline" then
 		has_job_pipeline = true
-		test.assert_eq(func.readonly, true, "job.pipeline should not be guarded")
+		test.assert_eq(func.guarded, false, "job.pipeline should not be guarded")
 	end
 end
 test.assert(has_job_pipeline, "job.pipeline function should exist in schema")
@@ -268,7 +268,7 @@ local has_find = false
 for _, func in ipairs(search_schema.functions) do
 	if func.name == "find" then
 		has_find = true
-		test.assert_eq(func.readonly, true, "search.find should not be guarded")
+		test.assert_eq(func.guarded, false, "search.find should not be guarded")
 	end
 end
 test.assert(has_find, "search.find function should exist in schema")

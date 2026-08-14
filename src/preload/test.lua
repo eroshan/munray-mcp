@@ -6,6 +6,7 @@ test = {}
 local passed = 0
 local failed = 0
 local current_test = nil
+local failure_messages = {}
 
 -- Start a new test
 function test.describe(name)
@@ -20,10 +21,13 @@ function test.assert(condition, message)
 		print(string.format("  ✓ %s", message or "assertion passed"))
 	else
 		failed = failed + 1
-		print(string.format("  ✗ %s", message or "assertion failed"))
+		local failure_message = message or "assertion failed"
+		print(string.format("  ✗ %s", failure_message))
 		if current_test then
 			print(string.format("    in test: %s", current_test))
+			failure_message = current_test .. ": " .. failure_message
 		end
+		table.insert(failure_messages, failure_message)
 	end
 end
 
@@ -67,7 +71,9 @@ function test.summary()
 	print(string.rep("=", 60))
 
 	if failed > 0 then
-		os.exit(1)
+		-- Let the Rust service-test runner report this file as failed and continue
+		-- with the remaining test files instead of terminating the whole process.
+		error("test assertions failed: " .. table.concat(failure_messages, "; "), 0)
 	end
 end
 
@@ -76,4 +82,5 @@ function test.reset()
 	passed = 0
 	failed = 0
 	current_test = nil
+	failure_messages = {}
 end

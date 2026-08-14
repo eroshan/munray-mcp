@@ -2,7 +2,7 @@
 -- This demonstrates creating, getting, listing, and deleting branches
 
 -- Set the repository (persist across calls)
-repo = "fivn/cloudtrain-infrastructure/misc/cdn-repo-backup"
+repo = "example-group/example-project"
 
 -- Example 1: Create a feature branch
 print("=== Example 1: Create a branch ===")

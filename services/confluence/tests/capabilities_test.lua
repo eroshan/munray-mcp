@@ -40,27 +40,27 @@ local has_update = false
 for _, func in ipairs(page_schema.functions) do
 	if func.name == "get" then
 		has_get = true
-		test.assert_eq(func.readonly, true, "page.get should not be guarded")
+		test.assert_eq(func.guarded, false, "page.get should not be guarded")
 	end
 	if func.name == "content" then
 		has_content = true
-		test.assert_eq(func.readonly, true, "page.content should not be guarded")
+		test.assert_eq(func.guarded, false, "page.content should not be guarded")
 	end
 	if func.name == "find" then
 		has_find = true
-		test.assert_eq(func.readonly, true, "page.find should not be guarded")
+		test.assert_eq(func.guarded, false, "page.find should not be guarded")
 	end
 	if func.name == "list" then
 		has_list = true
-		test.assert_eq(func.readonly, true, "page.list should not be guarded")
+		test.assert_eq(func.guarded, false, "page.list should not be guarded")
 	end
 	if func.name == "create" then
 		has_create = true
-		test.assert_eq(func.readonly, false, "page.create should be guarded")
+		test.assert_eq(func.guarded, true, "page.create should be guarded")
 	end
 	if func.name == "update" then
 		has_update = true
-		test.assert_eq(func.readonly, false, "page.update should be guarded")
+		test.assert_eq(func.guarded, true, "page.update should be guarded")
 	end
 end
 
@@ -91,23 +91,23 @@ test.assert_eq(err and err.code, "VALIDATION_FAILED", "find should return VALIDA
 test.describe("Confluence Service - Base URL Normalization")
 
 test.assert_eq(
-	confluence._client._normalize_base_url("https://five9inc.atlassian.net"),
-	"https://five9inc.atlassian.net/wiki",
+	confluence._client._normalize_base_url("https://example.atlassian.net"),
+	"https://example.atlassian.net/wiki",
 	"should append /wiki when missing"
 )
 test.assert_eq(
-	confluence._client._normalize_base_url("https://five9inc.atlassian.net/wiki"),
-	"https://five9inc.atlassian.net/wiki",
+	confluence._client._normalize_base_url("https://example.atlassian.net/wiki"),
+	"https://example.atlassian.net/wiki",
 	"should keep /wiki when already present"
 )
 test.assert_eq(
-	confluence._client._normalize_base_url("https://five9inc.atlassian.net/jira"),
-	"https://five9inc.atlassian.net/jira",
+	confluence._client._normalize_base_url("https://example.atlassian.net/jira"),
+	"https://example.atlassian.net/jira",
 	"should preserve invalid paths so validation can reject them"
 )
 
-local expected_base_url = "https://five9inc.atlassian.net/wiki"
-local expected_path = "/api/v2/pages/264995493"
+local expected_base_url = "https://example.atlassian.net/wiki"
+local expected_path = "/api/v2/pages/123456789"
 
 test.describe("Confluence Service - Ready URL Check")
 
@@ -140,7 +140,7 @@ confluence._client._request_impl = original_ready_impl
 
 test.describe("Confluence Service - URL Conversion")
 
-local human_url = "https://five9inc.atlassian.net/wiki/spaces/CLOUD/pages/264995493/Service+Ownership"
+local human_url = "https://example.atlassian.net/wiki/spaces/DEMO/pages/123456789/Example+Page"
 
 -- Stub transport so we can assert the exact URL pieces without network.
 local original_request_impl = confluence._client._request_impl
@@ -153,8 +153,8 @@ confluence._client._request_impl = function(method, base_url, path, req)
 
 	-- Minimal page payload for v2.0 API (returns full page object)
 	return {
-		id = "264995493",
-		title = "Service Ownership",
+		id = "123456789",
+		title = "Example Page",
 		body = {
 			storage = { value = "ok" },
 		},
@@ -189,20 +189,20 @@ confluence._client._request_impl = function(_method, _base_url, _path, _req)
 end
 
 confluence._config = {
-	base_url = confluence._client._normalize_base_url("https://five9inc.atlassian.net"),
+	base_url = confluence._client._normalize_base_url("https://example.atlassian.net"),
 	base_url_env = "JIRA_BASE_URL",
 	auth_email_env = "JIRA_EMAIL",
 	auth_token_env = "JIRA_API_TOKEN",
 }
 confluence._auth = { kind = "basic" }
 
-local _r, e = confluence._client.request("GET", "/api/v2/pages/264995493", { query = { ["body-format"] = "storage" } })
+local _r, e = confluence._client.request("GET", "/api/v2/pages/123456789", { query = { ["body-format"] = "storage" } })
 test.assert_eq(_r, nil, "request should return nil result on error")
 test.assert_not_nil(e, "request should return error")
 test.assert_not_nil(e.context, "error should have context")
 test.assert_eq(
 	e.context.full_url,
-	"https://five9inc.atlassian.net/wiki/api/v2/pages/264995493?body-format=storage",
+	"https://example.atlassian.net/wiki/api/v2/pages/123456789?body-format=storage",
 	"error context should include full_url"
 )
 
@@ -211,7 +211,7 @@ confluence._client._request_impl = original_impl2
 test.describe("Confluence Service - Invalid Base URL")
 
 confluence._config = {
-	base_url = confluence._client._normalize_base_url("https://five9inc.atlassian.net/jira"),
+	base_url = confluence._client._normalize_base_url("https://example.atlassian.net/jira"),
 	base_url_env = "JIRA_BASE_URL",
 	auth_email_env = "JIRA_EMAIL",
 	auth_token_env = "JIRA_API_TOKEN",

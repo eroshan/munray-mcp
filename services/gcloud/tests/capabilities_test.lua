@@ -78,7 +78,7 @@ for _, fn in ipairs(bigquery_schema.functions) do
 end
 
 test.assert_not_nil(bigquery_fn, "query function should exist in schema")
-test.assert_eq(bigquery_fn.readonly, true, "query should not be guarded")
+test.assert_eq(bigquery_fn.guarded, false, "query should not be guarded")
 test.assert_eq(bigquery_fn.returns_contract, "core.result", "should follow core.result contract")
 test.assert_not_nil(bigquery_fn.params, "should have params defined")
 test.assert_not_nil(bigquery_fn.returns_typed, "should have returns_typed")
@@ -97,7 +97,7 @@ for _, fn in ipairs(bigquery_schema.functions) do
 end
 
 test.assert_not_nil(bigquery_show_fn, "show function should exist in schema")
-test.assert_eq(bigquery_show_fn.readonly, true, "show should not be guarded")
+test.assert_eq(bigquery_show_fn.guarded, false, "show should not be guarded")
 test.assert_eq(bigquery_show_fn.returns_contract, "core.result", "show should follow core.result contract")
 test.assert_not_nil(bigquery_show_fn.params, "show should have params defined")
 test.assert_not_nil(bigquery_show_fn.returns_typed, "show should have returns_typed")
@@ -116,7 +116,7 @@ for _, fn in ipairs(bigquery_schema.functions) do
 end
 
 test.assert_not_nil(bigquery_describe_fn, "describe function should exist in schema")
-test.assert_eq(bigquery_describe_fn.readonly, true, "describe should not be guarded")
+test.assert_eq(bigquery_describe_fn.guarded, false, "describe should not be guarded")
 test.assert_eq(bigquery_describe_fn.returns_contract, "core.result", "describe should follow core.result contract")
 
 test.describe("GCloud Service - Logs Namespace")

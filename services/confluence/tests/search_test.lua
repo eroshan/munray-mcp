@@ -16,13 +16,13 @@ local has_pages = false
 for _, func in ipairs(schema.functions or {}) do
 	if func.name == "find" then
 		has_find = true
-		test.assert_eq(func.readonly, true, "search.find should not be guarded")
+		test.assert_eq(func.guarded, false, "search.find should not be guarded")
 		test.assert_eq(func.returns_contract, "core.iter", "search.find should return iterator contract")
 		test.assert_eq(func.yields, "SearchResult", "search.find should yield SearchResult")
 	end
 	if func.name == "pages" then
 		has_pages = true
-		test.assert_eq(func.readonly, true, "search.pages should not be guarded")
+		test.assert_eq(func.guarded, false, "search.pages should not be guarded")
 		test.assert_eq(func.returns_contract, "core.iter", "search.pages should return iterator contract")
 		test.assert_eq(func.yields, "SearchResult", "search.pages should yield SearchResult")
 	end

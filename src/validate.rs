@@ -177,7 +177,7 @@ fn metadata_warnings(runtime: &LuaRuntime, packs: &[PathBuf]) -> Result<Vec<Stri
     Ok(out)
 }
 
-fn object<'a>(v: &'a Value) -> Option<&'a Map<String, Value>> {
+fn object(v: &Value) -> Option<&Map<String, Value>> {
     v.as_object()
 }
 fn nonblank(v: Option<&Value>) -> bool {
@@ -611,7 +611,7 @@ fn contract(ns: &str, full: &str, f: &Map<String, Value>, out: &mut Vec<Issue>) 
         _ => {}
     }
 }
-fn type_fields<'a>(f: &'a Map<String, Value>) -> Vec<&'a str> {
+fn type_fields(f: &Map<String, Value>) -> Vec<&str> {
     let mut v = Vec::new();
     for k in ["yields"] {
         if let Some(x) = f.get(k).and_then(Value::as_str) {
@@ -664,7 +664,6 @@ fn check_type(
 ) {
     for b in ty.split('|') {
         let mut t = b
-            .trim()
             .split_whitespace()
             .next()
             .unwrap_or("")
