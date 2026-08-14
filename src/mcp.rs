@@ -88,7 +88,7 @@ pub struct McpServer {
     service_dir: Option<PathBuf>,
     store_path: Option<PathBuf>,
     session_ttl: Duration,
-    logger: Option<crate::telemetry::Logger>,
+    logger: Option<crate::logging::Logger>,
 }
 
 struct Session {
@@ -199,7 +199,7 @@ impl McpServer {
             session_ttl: Duration::from_secs(30 * 60),
             logger: logs_dir
                 .as_deref()
-                .and_then(|path| crate::telemetry::Logger::new(path).ok()),
+                .and_then(|path| crate::logging::Logger::new(path).ok()),
         }
     }
 
@@ -345,8 +345,8 @@ impl McpServer {
             Err(error) => (captured_output, Value::Null, Some(format!("{error:#}"))),
         };
         if let Some(logger) = &self.logger {
-            let _ = logger.log(crate::telemetry::ExecutionEntry {
-                timestamp_ms: crate::telemetry::now_ms(),
+            let _ = logger.log(crate::logging::ExecutionEntry {
+                timestamp_ms: crate::logging::now_ms(),
                 session_id: session_id.clone(),
                 mode: match mode {
                     ExecutionMode::ReadOnly => "readonly",

@@ -26,7 +26,8 @@ fn list_raw_enumerates_registered_primitives() {
         .stdout(predicate::str::contains("_raw.http.request"))
         .stdout(predicate::str::contains("_raw.http.start_request"))
         .stdout(predicate::str::contains("_raw.graphql.start_request"))
-        .stdout(predicate::str::contains("_raw.store.put"));
+        .stdout(predicate::str::contains("_raw.kv.put"))
+        .stdout(predicate::str::contains("_raw.snippets.save"));
 }
 
 #[test]

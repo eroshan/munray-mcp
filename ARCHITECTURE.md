@@ -17,7 +17,7 @@ The server executes Lua locally and exposes the runtime through MCP over stdio. 
 - exposing schema-backed Lua APIs and capability discovery;
 - distinguishing read-only and mutating MCP calls;
 - providing CLI, HTTP, GraphQL, task, namespaced KV, snippets, VFS, blob, secret, and ingest facilities; and
-- capturing execution output, metrics, and optional telemetry.
+- capturing execution output, metrics, and optional execution logging.
 
 Service packs are not compiled into the binary. The repository ships service packs, but the runtime still loads them as external files from the configured services directory.
 
@@ -100,7 +100,7 @@ The service directory is resolved in this order:
 3. `$MUNRAY_MCP_HOME/services`
 4. `$HOME/.local/share/<package-name>/services`
 
-The store path is resolved from `--store-path`, `MUNRAY_MCP_STORE_PATH`, or `<data-home>/store.json`. Relative store paths are made absolute against the process working directory.
+The store path is resolved from `--store-path`, `MUNRAY_MCP_STORE_PATH`, or `<data-home>/store.db`. Relative store paths are made absolute against the process working directory.
 
 Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. The package/binary name and default data-directory leaf derive from Cargo package metadata; the canonical product name is in `Cargo.toml`.
 
@@ -112,7 +112,8 @@ Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. 
 | --- | --- | --- |
 | CLI/configuration | `src/main.rs` | Argument parsing, path resolution, command routing, service test runner. |
 | MCP server | `src/mcp.rs` | Tools, elicitation, sessions, ordering, timeout selection, response encoding. |
-| Lua runtime | `src/runtime.rs` | VM construction, raw registration, preload, store, execution, conversion, restrictions. |
+| Lua runtime | `src/runtime.rs` | VM construction, raw registration, preload, execution, conversion, restrictions. |
+| Durable storage | `src/storage.rs` | SQLite lifecycle, KV expiry, metrics, snippets, schema initialization, and Lua storage bridges. |
 | Service loading | `src/services.rs` | Deterministic source/example discovery and execution. |
 | Core Lua bootstrap | `src/preload.lua` | Raw guards, schema wrappers, metrics hooks, dynamic snippets, compatibility implementations. |
 | Modular core Lua | `src/preload/*.lua` | Helpers, capabilities, store schema, tasks, VFS, ingest, error translation, tests. |
@@ -122,14 +123,14 @@ Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. 
 | Secrets/auth | `src/secrets.rs` | Environment and command secret references, resolution and TTL cache. |
 | VFS/blob/ingest | `src/vfs.rs`, `src/blob.rs`, `src/ingest.rs` | Runtime-local files, binary handles, uploaded text. |
 | Ingest IPC | `src/ipc.rs` | Unix socket endpoint and wire protocol. |
-| Telemetry/stats | `src/telemetry.rs`, `src/stats.rs` | Execution JSONL and function-usage reports. |
+| Execution logging/stats | `src/logging.rs`, `src/stats.rs` | Execution JSONL and function-usage reports. |
 | Deadline propagation | `src/deadline.rs` | Thread-local deadline used by selected synchronous nested operations. |
 
 ## 5. State ownership and lifetimes
 
 | Scope | State | Lifetime and sharing |
 | --- | --- | --- |
-| Process-global | `PERSISTENT_STORES` | Maps absolute store paths to shared in-memory maps. All runtimes in one process using the same path share values. Entries remain registered for process lifetime. |
+| Process-global | SQLite connection registry | Maps absolute database paths to one mutex-protected reusable SQLite connection. All runtimes in one process using the same path share it. |
 | Process-global | command-secret registry | Maps generated IDs to command-secret definitions. Entries are not currently removed. |
 | Process-global | pending MCP arrivals | Keyed by `session_id`; used by same-session ordering. |
 | `McpServer` | session map, service/store paths, TTL, optional logger | Shared across cloned server handlers. |
@@ -279,7 +280,7 @@ The thread-local deadline constrains selected synchronous nested operations, inc
 
 ### 9.2 Output and return conversion
 
-`print` joins arguments with tabs and appends a newline. Output is retained on MCP execution failure, but CLI error handling currently returns before printing captured output or writing a failure telemetry entry.
+`print` joins arguments with tabs and appends a newline. Output is retained on MCP execution failure, but CLI error handling currently returns before printing captured output or writing a failed-execution log entry.
 
 Return conversion rules are:
 
@@ -336,7 +337,8 @@ The raw CLI and command-secret implementations require exact command-name member
 | `_raw.http` | `request`, `list`, `start_request` |
 | `_raw.ingest` | `get` |
 | `_raw.secrets` | `env`, `command` |
-| `_raw.store` | `put`, `get`, `delete`, `keys`, `len`, `clear`, `cache_set`, `cache_get` |
+| `_raw.kv` | `put`, `get`, `delete`, `keys`, `len`, `clear` |
+| `_raw.snippets` | `save`, `get`, `list`, `delete` |
 | `_raw.task` | `status`, `result`, `wait`, `cancel` |
 | `_raw.test` | `set_mode`, `start_task` |
 | `_raw.url` | query/path escape and unescape |
@@ -424,21 +426,13 @@ The listener uses detached native threads. Dropping its guard removes the socket
 
 ### 12.1 Store representation
 
-The durable store is a pretty-printed JSON array of:
+The durable store is SQLite, implemented in `src/storage.rs`. It owns independent `kv_entries`, `metrics`, and `snippets` relations and creates them transactionally on open. Connections use WAL, normal synchronous durability, a 64 MiB page cache, in-memory temporary storage, and foreign-key enforcement. A process reuses one mutex-protected connection per absolute database path; SQLite coordinates writers in other processes.
 
-```json
-{"kind": "...", "key": "...", "value": null}
-```
-
-At first open in a process, the entire file is parsed into a map keyed by `(kind, key)`. Writes serialize the entire non-cache map to a sibling `.tmp` path, set mode `0600` on Unix, and rename it over the store.
-
-There is no inter-process file lock. Multiple server/CLI processes using the same store can read stale snapshots, overwrite each other's changes, or race on the shared temporary filename. Within one process, runtimes using the same absolute path share one mutex-protected map.
-
-Cache entries are explicitly filtered both when loading and when persisting: **cache values are not durable**. However, the cache value map is process-shared while expiry timestamps are runtime-local, so cross-session cache reads can observe inconsistent expiry behavior.
+Generic KV rows retain JSON text, content type, timestamps, and an optional expiry. Expired KV rows are hidden at `expires_at_s <= now` and lazily removed during get, keys, and count. There is no core cache API or cache relation: callers use a normal durable namespace and set expiry themselves. Metrics and snippets are core-owned relations and are not reachable through generic KV.
 
 ### 12.2 Persisted snippets
 
-Kinds `fn`, `schema`, and `example` are restored during startup. Function text is compiled in the global environment, namespaces are created dynamically, descriptors are attached, and security wrappers are reinstalled. Snippets default to `mutating=false` unless schema text says otherwise.
+Complete snippet rows are restored during startup. Function text is compiled in the global environment, namespaces are created dynamically, descriptors are attached, and security wrappers are reinstalled. Snippets default to `mutating=false` unless schema text says otherwise.
 
 Installing/deleting a snippet changes only the current Lua runtime immediately. Other existing sessions share its durable records but do not install/remove the corresponding Lua function until they are recreated or explicitly updated themselves.
 
@@ -450,15 +444,15 @@ Schema wrappers intend to increment:
 - `fn.<path>.err`; and
 - `fn.<path>.blocked`.
 
-The increments are whole-store writes. A current ordering defect calls the guarded raw store **before** entering raw context. In MCP runtimes those metric operations return `RAW_OUTSIDE_SCHEMA`, and the error is silently ignored; direct-raw CLI runtimes do record metrics. Therefore `stats` is not currently a complete report of MCP usage.
+Metric increments use an atomic SQLite upsert. They are issued by the Rust schema wrapper, so both MCP and CLI calls record usage without routing through a guarded raw Lua function.
 
 `stats` creates a runtime to discover currently available function paths, reads historical metric records from the store, and reports both available functions and metrics for functions that no longer exist.
 
 ## 13. Telemetry and errors
 
-### 13.1 Execution telemetry
+### 13.1 Execution logging
 
-When enabled, telemetry appends JSON lines to `<logs-dir>/executions.jsonl`. Each entry includes timestamp, session, mode, full Lua code, output, result, error, and duration. Unix creation modes are `0700` for a newly-created directory and `0600` for the file.
+When enabled, execution logging appends JSON lines to `<logs-dir>/executions.jsonl`. Each entry includes timestamp, session, mode, full Lua code, output, result, error, and duration. Unix creation modes are `0700` for a newly-created directory and `0600` for the file.
 
 Telemetry contains unredacted code and values and can therefore contain secrets. Logger behavior also differs by surface:
 
@@ -508,8 +502,7 @@ This section is a review backlog, not current behavior.
 7. **Do not build runtimes under the session-map lock.** Use an entry/future state so an expensive new session does not block unrelated session lookup/creation.
 8. **Move blocking work off async executor threads.** Run Lua sessions on dedicated workers or `spawn_blocking`, with bounded concurrency and cancellation.
 9. **Unify deadlines.** Make Rust callbacks, task waits, ZIP work, HTTP, and subprocess trees observe one cancellation/deadline abstraction.
-10. **Use a transactional store.** SQLite is a natural fit for cross-process locking, atomic updates, snippets, metrics, and cache expiry. At minimum, add file locking and unique temporary files.
-11. **Fix metrics placement and batching.** Enter authorized context before metric writes, test MCP metrics, and avoid rewriting the full store on every function call.
+11. **Batch metric writes.** Metric updates are atomic SQLite upserts; add batching if wrapper-level write volume becomes significant.
 12. **Make cache ownership coherent.** Store values and expiry in the same scope, or define cache as explicitly per-runtime rather than process-shared value/runtime-local expiry.
 13. **Manage task lifecycle.** Use a bounded executor, completed-task retention, aggregate result limits, HTTP cancellation, process-group termination, and cancellation on session eviction.
 
@@ -526,7 +519,7 @@ This section is a review backlog, not current behavior.
 19. **Replace shell ZIP extraction.** Use an in-process archive library with entry, expanded-byte, compression-ratio, time, and total-disk quotas.
 20. **Add aggregate VFS/blob quotas and cleanup controls.** Report truncation and quota errors explicitly.
 21. **Unify structured errors.** Return one stable error envelope from Lua through MCP and set MCP error status consistently.
-22. **Add telemetry redaction and reliable failure reporting.** Make logging failure policy explicit and avoid recording raw secrets by default.
+22. **Add execution-log redaction and reliable failure reporting.** Make logging failure policy explicit and avoid recording raw secrets by default.
 23. **Remove unbounded process-global registries.** Scope stores, command secrets, and scheduling state to an application object with deterministic cleanup.
 24. **Add architecture-focused tests.** Cover schema tampering, wrapper installation, native module loading, MCP metrics, cross-session cache behavior, session eviction with tasks, duplicate/out-of-order request IDs, store concurrency, and timeout gaps.
 

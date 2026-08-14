@@ -65,7 +65,7 @@ and ingest. Unix ingest sockets are created with owner-only permissions.
 | --- | --- | --- |
 | `--svc-dir` | `MUNRAY_MCP_SVC_DIR` | Service-pack directory; defaults to `$MUNRAY_MCP_HOME/services` |
 | `--store-path` | `MUNRAY_MCP_STORE_PATH` | Durable store, saved snippets, and usage metrics; defaults to `$MUNRAY_MCP_HOME/store.json` |
-| `--logs-dir` | `MUNRAY_MCP_LOGS_DIR` | Owner-only JSONL execution telemetry |
+| `--logs-dir` | `MUNRAY_MCP_LOGS_DIR` | Owner-only JSONL execution logging |
 
 `munray-mcp stats` reports wrapped public function availability and usage metrics
 from the durable store:

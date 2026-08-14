@@ -1,26 +1,9 @@
-use std::{
-    collections::HashMap,
-    fs,
-    path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
-};
+use std::{collections::HashMap, fs, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use mlua::{HookTriggers, Lua, LuaOptions, LuaSerdeExt, MultiValue, StdLib, Value, VmState};
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue, json};
-
-type StoreMap = HashMap<(String, String), JsonValue>;
-static PERSISTENT_STORES: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<StoreMap>>>>> = OnceLock::new();
-
-#[derive(Serialize, Deserialize)]
-struct PersistedEntry {
-    #[serde(alias = "kind")]
-    namespace: String,
-    key: String,
-    value: JsonValue,
-}
 
 struct RawAuthorization {
     bootstrap: bool,
@@ -59,9 +42,8 @@ pub struct LuaRuntime {
     lua: Lua,
     output: Arc<Mutex<String>>,
     mode: Arc<Mutex<ExecutionMode>>,
-    store: Arc<Mutex<StoreMap>>,
+    store: crate::storage::Store,
     allowed_cli: Arc<Mutex<Vec<String>>>,
-    store_path: Option<Arc<PathBuf>>,
     raw_authorization: Arc<Mutex<RawAuthorization>>,
     function_registry: Arc<Mutex<HashMap<String, RegisteredFunction>>>,
     session_env: Arc<Mutex<Option<mlua::Table>>>,
@@ -117,20 +99,13 @@ impl LuaRuntime {
         let exposures = Arc::new(Mutex::new(Vec::new()));
         let blobs = crate::blob::BlobStore::new();
         let ingest = crate::ingest::IngestStore::new(Arc::clone(&vfs));
-        let (store, store_path) = match store_path {
-            Some(path) => {
-                let path = absolute_path(path)?;
-                (persistent_store(&path)?, Some(Arc::new(path)))
-            }
-            None => (Arc::new(Mutex::new(HashMap::new())), None),
-        };
+        let store = crate::storage::Store::open(store_path)?;
         let runtime = Self {
             lua,
             output: Arc::new(Mutex::new(String::new())),
             mode: Arc::new(Mutex::new(ExecutionMode::ReadOnly)),
-            store,
+            store: store.clone(),
             allowed_cli: Arc::new(Mutex::new(Vec::new())),
-            store_path: store_path.clone(),
             raw_authorization: Arc::new(Mutex::new(RawAuthorization {
                 bootstrap: true,
                 direct_allowed: false,
@@ -143,18 +118,18 @@ impl LuaRuntime {
             _blobs: blobs.clone(),
             ingest: ingest.clone(),
         };
-        runtime.install_core(vfs, exposures, blobs, ingest, store_path)?;
+        runtime.install_core(vfs, exposures, blobs, ingest, store)?;
         if let Some(path) = service_dir {
             crate::services::load(&runtime.lua, path)?;
             runtime.discover_allowed_cli()?;
         }
-        runtime.load_stored_snippets()?;
-        runtime.install_snippet_save()?;
+        crate::storage::restore_lua_snippets(&runtime.lua, &runtime.store)?;
+        runtime.install_snippet_hooks()?;
         runtime.install_security_wrappers()?;
         runtime.finish_raw_authorization(allow_direct_raw);
         runtime
             .lua
-            .load("__install_security_wrappers = nil; __authorized_invoke = nil; __legacy_snippet_save = nil; __legacy_snippet_delete = nil; __snippet_pending = nil")
+            .load("__install_security_wrappers = nil; __authorized_invoke = nil; __legacy_snippet_save = nil; __legacy_snippet_delete = nil; __snippet_pending = nil; store = nil")
             .exec()?;
         if !allow_direct_raw {
             runtime.install_session_environment()?;
@@ -168,7 +143,7 @@ impl LuaRuntime {
         exposures: Arc<Mutex<Vec<tempfile::TempDir>>>,
         blobs: crate::blob::BlobStore,
         ingest: crate::ingest::IngestStore,
-        store_path: Option<Arc<PathBuf>>,
+        store: crate::storage::Store,
     ) -> Result<()> {
         let globals = self.lua.globals();
         let output = self.output.clone();
@@ -197,8 +172,8 @@ impl LuaRuntime {
                 .create_function(move |_, ()| Ok(mode.lock().as_str()))?,
         )?;
         for namespace in [
-            "auth", "blob", "cli", "graphql", "http", "ingest", "kv", "secrets", "store", "task",
-            "test", "url", "vfs",
+            "auth", "blob", "cli", "graphql", "http", "ingest", "kv", "secrets", "snippets",
+            "task", "test", "url", "vfs",
         ] {
             raw.set(namespace, self.lua.create_table()?)?;
         }
@@ -301,163 +276,7 @@ impl LuaRuntime {
             })?,
         )?;
 
-        let store_api: mlua::Table = raw_table.get("store")?;
-        let store = Arc::clone(&self.store);
-        store_api.set(
-            "get",
-            self.lua
-                .create_function(move |lua, (kind, key): (String, String)| {
-                    match store.lock().get(&(kind, key)).cloned() {
-                        Some(value) => Ok((lua.to_value(&value)?, Value::Nil)),
-                        None => Ok((Value::Nil, Value::Nil)),
-                    }
-                })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        let path = store_path.clone();
-        store_api.set(
-            "delete",
-            self.lua
-                .create_function(move |_, (kind, key): (String, String)| {
-                    let mut values = store.lock();
-                    let deleted = values.remove(&(kind, key)).is_some();
-                    persist_if_configured(path.as_deref(), &values)
-                        .map_err(mlua::Error::external)?;
-                    Ok((deleted, Value::Nil))
-                })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        store_api.set(
-            "keys",
-            self.lua.create_function(move |lua, kind: String| {
-                let mut keys = store
-                    .lock()
-                    .keys()
-                    .filter(|(entry_kind, _)| entry_kind == &kind)
-                    .map(|(_, key)| key.clone())
-                    .collect::<Vec<_>>();
-                keys.sort();
-                Ok((lua.to_value(&keys)?, Value::Nil))
-            })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        store_api.set(
-            "len",
-            self.lua.create_function(move |_, kind: String| {
-                let count = store
-                    .lock()
-                    .keys()
-                    .filter(|(entry_kind, _)| entry_kind == &kind)
-                    .count();
-                Ok((count, Value::Nil))
-            })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        let path = store_path.clone();
-        store_api.set(
-            "clear",
-            self.lua.create_function(move |_, kind: String| {
-                let mut values = store.lock();
-                values.retain(|(entry_kind, _), _| entry_kind != &kind);
-                persist_if_configured(path.as_deref(), &values).map_err(mlua::Error::external)?;
-                Ok((true, Value::Nil))
-            })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        let path = store_path;
-        store_api.set(
-            "put",
-            self.lua
-                .create_function(move |lua, (kind, key, value): (String, String, Value)| {
-                    let value: JsonValue = lua.from_value(value)?;
-                    let mut values = store.lock();
-                    values.insert((kind, key), value);
-                    persist_if_configured(path.as_deref(), &values)
-                        .map_err(mlua::Error::external)?;
-                    Ok((true, Value::Nil))
-                })?,
-        )?;
-        let kv_api: mlua::Table = raw_table.get("kv")?;
-        let store = Arc::clone(&self.store);
-        kv_api.set(
-            "get",
-            self.lua
-                .create_function(move |lua, (namespace, key): (String, String)| {
-                    let storage_key = format!("kv:{namespace}");
-                    match store.lock().get(&(storage_key, key)).cloned() {
-                        Some(value) => Ok((lua.to_value(&value)?, Value::Nil)),
-                        None => Ok((Value::Nil, Value::Nil)),
-                    }
-                })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        let path = self.store_path.clone();
-        kv_api.set(
-            "put",
-            self.lua.create_function(
-                move |lua, (namespace, key, value): (String, String, Value)| {
-                    let value: JsonValue = lua.from_value(value)?;
-                    let mut values = store.lock();
-                    values.insert((format!("kv:{namespace}"), key), value);
-                    persist_if_configured(path.as_deref(), &values)
-                        .map_err(mlua::Error::external)?;
-                    Ok((true, Value::Nil))
-                },
-            )?,
-        )?;
-        let store = Arc::clone(&self.store);
-        let path = self.store_path.clone();
-        kv_api.set(
-            "delete",
-            self.lua
-                .create_function(move |_, (namespace, key): (String, String)| {
-                    let mut values = store.lock();
-                    let deleted = values.remove(&(format!("kv:{namespace}"), key)).is_some();
-                    persist_if_configured(path.as_deref(), &values)
-                        .map_err(mlua::Error::external)?;
-                    Ok((deleted, Value::Nil))
-                })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        kv_api.set(
-            "keys",
-            self.lua.create_function(move |lua, namespace: String| {
-                let storage_key = format!("kv:{namespace}");
-                let mut keys = store
-                    .lock()
-                    .keys()
-                    .filter(|(entry_namespace, _)| entry_namespace == &storage_key)
-                    .map(|(_, key)| key.clone())
-                    .collect::<Vec<_>>();
-                keys.sort();
-                Ok((lua.to_value(&keys)?, Value::Nil))
-            })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        kv_api.set(
-            "len",
-            self.lua.create_function(move |_, namespace: String| {
-                let storage_key = format!("kv:{namespace}");
-                let count = store
-                    .lock()
-                    .keys()
-                    .filter(|(entry_namespace, _)| entry_namespace == &storage_key)
-                    .count();
-                Ok((count, Value::Nil))
-            })?,
-        )?;
-        let store = Arc::clone(&self.store);
-        let path = self.store_path.clone();
-        kv_api.set(
-            "clear",
-            self.lua.create_function(move |_, namespace: String| {
-                let storage_key = format!("kv:{namespace}");
-                let mut values = store.lock();
-                values.retain(|(entry_namespace, _), _| entry_namespace != &storage_key);
-                persist_if_configured(path.as_deref(), &values).map_err(mlua::Error::external)?;
-                Ok((true, Value::Nil))
-            })?,
-        )?;
+        crate::storage::register_lua(&self.lua, &raw_table, store)?;
 
         let cli_api: mlua::Table = raw_table.get("cli")?;
         let allowed = Arc::clone(&self.allowed_cli);
@@ -571,49 +390,7 @@ impl LuaRuntime {
             .set_name("@core/kv.lua")
             .exec()?;
         self.lua
-            .load(
-                r#"
-                local legacy_store = store
-                snippets = {
-                  save = function(def) return __legacy_snippet_save(def) end,
-                  delete = function(path) return __legacy_snippet_delete(path) end,
-                  get = function(path)
-                    local value, err = _raw.store.get("fn", path)
-                    if err then return nil, err end
-                    return value, nil
-                  end,
-                  list = function()
-                    return _raw.store.keys("fn")
-                  end,
-                  __schema = { namespace="snippets", service="core", functions=(function()
-                    local function d(name, mutating, signature, description)
-                      return {name=name,path="snippets."..name,mutating=mutating,signature=signature,returns_contract="core.result",description=description,returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}}
-                    end
-                    return {
-                      d("save", true, "(definition)", "Save and immediately register a trusted snippet"),
-                      d("delete", true, "(path)", "Delete a snippet from this runtime and persistence"),
-                      d("get", false, "(path)", "Get stored snippet source"),
-                      d("list", false, "()", "List stored snippet paths"),
-                    }
-                  end)()}, 
-                }
-                __legacy_snippet_save = function(def)
-                  store = legacy_store
-                  local values = table.pack(pcall(legacy_store.save_snippet, def))
-                  store = nil
-                  if not values[1] then error(values[2], 0) end
-                  return table.unpack(values, 2, values.n)
-                end
-                __legacy_snippet_delete = function(path)
-                  store = legacy_store
-                  local values = table.pack(pcall(legacy_store.delete, "fn", path))
-                  store = nil
-                  if not values[1] then error(values[2], 0) end
-                  return table.unpack(values, 2, values.n)
-                end
-                store = nil
-                "#,
-            )
+            .load(include_str!("preload/snippets.lua"))
             .set_name("@core/snippets.lua")
             .exec()?;
         self.lua
@@ -703,8 +480,7 @@ impl LuaRuntime {
             &self.lua,
             Arc::clone(&self.mode),
             Arc::clone(&self.raw_authorization),
-            Arc::clone(&self.store),
-            self.store_path.clone(),
+            self.store.clone(),
             Arc::clone(&self.function_registry),
             Arc::clone(&self.session_env),
         )
@@ -714,8 +490,7 @@ impl LuaRuntime {
         lua: &Lua,
         mode: Arc<Mutex<ExecutionMode>>,
         authorization: Arc<Mutex<RawAuthorization>>,
-        store: Arc<Mutex<StoreMap>>,
-        store_path: Option<Arc<PathBuf>>,
+        store: crate::storage::Store,
         registry: Arc<Mutex<HashMap<String, RegisteredFunction>>>,
         session_env: Arc<Mutex<Option<mlua::Table>>>,
     ) -> Result<()> {
@@ -765,28 +540,18 @@ impl LuaRuntime {
                 let registered_for_call = registered.clone();
                 let mode_for_call = Arc::clone(&mode);
                 let auth_for_call = Arc::clone(&authorization);
-                let store_for_call = Arc::clone(&store);
-                let path_for_call = store_path.clone();
+                let store_for_call = store.clone();
                 let operation_for_call = operation.clone();
                 let original_for_call = original.clone();
                 let wrapper = lua.create_function(move |lua, args: MultiValue| {
                     if registered_for_call.mutating
                         && *mode_for_call.lock() != ExecutionMode::Mutating
                     {
-                        increment_metric(
-                            &store_for_call,
-                            path_for_call.as_deref().map(PathBuf::as_path),
-                            &operation_for_call,
-                            "blocked",
-                        );
+                        let _ = store_for_call
+                            .increment_function_metric(&operation_for_call, "blocked");
                         return mutation_blocked(lua, &operation_for_call);
                     }
-                    increment_metric(
-                        &store_for_call,
-                        path_for_call.as_deref().map(PathBuf::as_path),
-                        &operation_for_call,
-                        "calls",
-                    );
+                    let _ = store_for_call.increment_function_metric(&operation_for_call, "calls");
                     let result = {
                         let _scope = RawScope::enter(Arc::clone(&auth_for_call));
                         original_for_call.call::<MultiValue>(args)
@@ -794,12 +559,8 @@ impl LuaRuntime {
                     let mut values = match result {
                         Ok(values) => values,
                         Err(error) => {
-                            increment_metric(
-                                &store_for_call,
-                                path_for_call.as_deref().map(PathBuf::as_path),
-                                &operation_for_call,
-                                "err",
-                            );
+                            let _ = store_for_call
+                                .increment_function_metric(&operation_for_call, "err");
                             return Err(error);
                         }
                     };
@@ -807,12 +568,8 @@ impl LuaRuntime {
                         && !matches!(values.get(1), Some(Value::Nil) | None)
                         && (registered_for_call.operation == operation_for_call)
                     {
-                        increment_metric(
-                            &store_for_call,
-                            path_for_call.as_deref().map(PathBuf::as_path),
-                            &operation_for_call,
-                            "err",
-                        );
+                        let _ =
+                            store_for_call.increment_function_metric(&operation_for_call, "err");
                     }
                     if registered_for_call.iterator {
                         if let Some(Value::Function(iterator_fn)) = values.front().cloned() {
@@ -837,71 +594,60 @@ impl LuaRuntime {
         Ok(())
     }
 
-    fn install_snippet_save(&self) -> Result<()> {
-        let globals = self.lua.globals();
-        let snippets: mlua::Table = globals.get("snippets")?;
-        let prepare: mlua::Function = globals.get("__legacy_snippet_save")?;
-        let delete_prepare: mlua::Function = globals.get("__legacy_snippet_delete")?;
+    fn install_snippet_hooks(&self) -> Result<()> {
+        let snippets: mlua::Table = self.lua.globals().get("snippets")?;
+        let original_save: mlua::Function = snippets.get("save")?;
         let mode = Arc::clone(&self.mode);
         let authorization = Arc::clone(&self.raw_authorization);
-        let store = Arc::clone(&self.store);
-        let store_path = self.store_path.clone();
+        let store = self.store.clone();
         let registry = Arc::clone(&self.function_registry);
         let session_env = Arc::clone(&self.session_env);
-        let save = self
-            .lua
-            .create_function(move |lua, definition: mlua::Table| {
-                let _: String = definition.get("path").map_err(|_| {
-                    mlua::Error::runtime("snippet definition requires a string path")
-                })?;
-                let result: MultiValue = {
-                    let _scope = RawScope::enter(Arc::clone(&authorization));
-                    prepare.call(definition)?
-                };
-                if matches!(result.front(), Some(Value::Nil)) {
-                    return Ok(result);
+        snippets.set(
+            "save",
+            self.lua
+                .create_function(move |lua, definition: mlua::Table| {
+                    let path: String = definition.get("path")?;
+                    let result: MultiValue = original_save.call(definition)?;
+                    if matches!(result.front(), Some(Value::Boolean(true))) {
+                        registry.lock().remove(&path);
+                        Self::install_security_wrappers_on(
+                            lua,
+                            Arc::clone(&mode),
+                            Arc::clone(&authorization),
+                            store.clone(),
+                            Arc::clone(&registry),
+                            Arc::clone(&session_env),
+                        )
+                        .map_err(mlua::Error::external)?;
+                    }
+                    Ok(result)
+                })?,
+        )?;
+        let original_delete: mlua::Function = snippets.get("delete")?;
+        let mode = Arc::clone(&self.mode);
+        let authorization = Arc::clone(&self.raw_authorization);
+        let store = self.store.clone();
+        let registry = Arc::clone(&self.function_registry);
+        let session_env = Arc::clone(&self.session_env);
+        snippets.set(
+            "delete",
+            self.lua.create_function(move |lua, path: String| {
+                let result: MultiValue = original_delete.call(path.clone())?;
+                if matches!(result.front(), Some(Value::Boolean(true))) {
+                    registry.lock().remove(&path);
+                    Self::install_security_wrappers_on(
+                        lua,
+                        Arc::clone(&mode),
+                        Arc::clone(&authorization),
+                        store.clone(),
+                        Arc::clone(&registry),
+                        Arc::clone(&session_env),
+                    )
+                    .map_err(mlua::Error::external)?;
                 }
-                Self::install_security_wrappers_on(
-                    lua,
-                    Arc::clone(&mode),
-                    Arc::clone(&authorization),
-                    Arc::clone(&store),
-                    store_path.clone(),
-                    Arc::clone(&registry),
-                    Arc::clone(&session_env),
-                )
-                .map_err(mlua::Error::external)?;
                 Ok(result)
-            })?;
-        snippets.set("save", save)?;
-        let mode = Arc::clone(&self.mode);
-        let authorization = Arc::clone(&self.raw_authorization);
-        let store = Arc::clone(&self.store);
-        let store_path = self.store_path.clone();
-        let registry = Arc::clone(&self.function_registry);
-        let session_env = Arc::clone(&self.session_env);
-        let delete = self.lua.create_function(move |lua, path: String| {
-            let result: MultiValue = {
-                let _scope = RawScope::enter(Arc::clone(&authorization));
-                delete_prepare.call(path.clone())?
-            };
-            if !matches!(result.front(), Some(Value::Boolean(true))) {
-                return Ok(result);
-            }
-            registry.lock().remove(&path);
-            Self::install_security_wrappers_on(
-                lua,
-                Arc::clone(&mode),
-                Arc::clone(&authorization),
-                Arc::clone(&store),
-                store_path.clone(),
-                Arc::clone(&registry),
-                Arc::clone(&session_env),
-            )
-            .map_err(mlua::Error::external)?;
-            Ok(result)
-        })?;
-        snippets.set("delete", delete)?;
+            })?,
+        )?;
         Ok(())
     }
 
@@ -929,32 +675,6 @@ impl LuaRuntime {
         commands.dedup();
         *self.allowed_cli.lock() = commands;
         Ok(())
-    }
-
-    fn load_stored_snippets(&self) -> Result<()> {
-        self.lua
-            .load(
-                r#"
-                local keys, keys_err = _raw.store.keys("fn")
-                if keys_err then error(keys_err.message) end
-                for _, key in ipairs(keys) do
-                  local code, get_err = _raw.store.get("fn", key)
-                  if get_err then error(get_err.message) end
-                  local schema = _raw.store.get("schema", key)
-                  local example_expr = _raw.store.get("example", key)
-                  local example = nil
-                  if type(example_expr) == "string" then
-                    local chunk = load("return " .. example_expr, "=stored-example", "t", _G)
-                    if chunk then example = chunk() end
-                  end
-                  local ok, save_err = snippets.save({path=key, code=code, schema_expr=schema, example=example})
-                  if not ok then error(save_err.message) end
-                end
-                "#,
-            )
-            .set_name("@core/restore-store.lua")
-            .exec()
-            .context("failed to restore persisted Lua snippets")
     }
 
     pub fn execute(&self, code: &str, mode: ExecutionMode, chunk_name: &str) -> Result<Execution> {
@@ -1151,22 +871,6 @@ fn mutation_blocked(lua: &Lua, operation: &str) -> mlua::Result<MultiValue> {
     Ok(MultiValue::from_vec(vec![Value::Nil, Value::Table(error)]))
 }
 
-fn increment_metric(
-    store: &Arc<Mutex<StoreMap>>,
-    store_path: Option<&Path>,
-    operation: &str,
-    metric: &str,
-) {
-    let key = format!("fn.{operation}.{metric}");
-    let mut values = store.lock();
-    let current = values
-        .get(&("metrics".to_owned(), key.clone()))
-        .and_then(JsonValue::as_f64)
-        .unwrap_or(0.0);
-    values.insert(("metrics".to_owned(), key), json!(current + 1.0));
-    let _ = persist_if_configured(store_path.map(Path::to_path_buf).as_ref(), &values);
-}
-
 fn refresh_session_environment(lua: &Lua, holder: &Arc<Mutex<Option<mlua::Table>>>) -> Result<()> {
     let Some(environment) = holder.lock().clone() else {
         return Ok(());
@@ -1307,76 +1011,6 @@ fn collect_schema_namespaces(
         collect_schema_namespaces(child, seen, namespaces)?;
     }
     Ok(())
-}
-
-fn persistent_store(path: &Path) -> Result<Arc<Mutex<StoreMap>>> {
-    let path = absolute_path(path)?;
-    let stores = PERSISTENT_STORES.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(store) = stores.lock().get(&path).cloned() {
-        return Ok(store);
-    }
-
-    let values = if path.exists() {
-        let bytes =
-            fs::read(&path).with_context(|| format!("failed to read store {}", path.display()))?;
-        let entries: Vec<PersistedEntry> = serde_json::from_slice(&bytes)
-            .with_context(|| format!("failed to parse store {}", path.display()))?;
-        entries
-            .into_iter()
-            .map(|entry| ((entry.namespace, entry.key), entry.value))
-            .collect()
-    } else {
-        HashMap::new()
-    };
-    let store = Arc::new(Mutex::new(values));
-    let mut stores = stores.lock();
-    Ok(stores
-        .entry(path)
-        .or_insert_with(|| Arc::clone(&store))
-        .clone())
-}
-
-fn absolute_path(path: &Path) -> Result<PathBuf> {
-    if path.is_absolute() {
-        Ok(path.to_path_buf())
-    } else {
-        Ok(std::env::current_dir()?.join(path))
-    }
-}
-
-fn persist_if_configured(path: Option<&PathBuf>, values: &StoreMap) -> std::io::Result<()> {
-    let Some(path) = path else {
-        return Ok(());
-    };
-    if let Some(parent) = path.parent() {
-        let parent_existed = parent.exists();
-        fs::create_dir_all(parent)?;
-        #[cfg(unix)]
-        if !parent_existed {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
-        }
-    }
-
-    let mut entries = values
-        .iter()
-        .map(|((namespace, key), value)| PersistedEntry {
-            namespace: namespace.clone(),
-            key: key.clone(),
-            value: value.clone(),
-        })
-        .collect::<Vec<_>>();
-    entries
-        .sort_by(|left, right| (&left.namespace, &left.key).cmp(&(&right.namespace, &right.key)));
-    let encoded = serde_json::to_vec_pretty(&entries).map_err(std::io::Error::other)?;
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, encoded)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
-    }
-    fs::rename(temporary, path)
 }
 
 fn lua_value_to_json(value: Value) -> Result<JsonValue> {

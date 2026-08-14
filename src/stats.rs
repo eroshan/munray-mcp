@@ -1,14 +1,12 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs,
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use anyhow::Result;
+use serde::Serialize;
 
-use crate::runtime::LuaRuntime;
+use crate::{runtime::LuaRuntime, storage::Store};
 
 const TOP_FUNCTION_LIMIT: usize = 20;
 
@@ -53,14 +51,6 @@ pub struct Report {
     pub unused: Vec<String>,
 }
 
-#[derive(Deserialize)]
-struct PersistedEntry {
-    #[serde(alias = "kind")]
-    namespace: String,
-    key: String,
-    value: Value,
-}
-
 pub fn collect_report(service_dir: Option<&Path>, store_path: &Path) -> Result<Report> {
     let runtime = LuaRuntime::new_persistent(service_dir, store_path)?;
     let available = runtime.eligible_function_paths()?;
@@ -70,38 +60,22 @@ pub fn collect_report(service_dir: Option<&Path>, store_path: &Path) -> Result<R
 
 fn collect_metrics(store_path: &Path) -> Result<HashMap<String, FunctionStat>> {
     let mut out = HashMap::new();
-    if !store_path.exists() {
-        return Ok(out);
-    }
-    let bytes = fs::read(store_path)
-        .with_context(|| format!("failed to read store {}", store_path.display()))?;
-    if bytes.iter().all(u8::is_ascii_whitespace) {
-        return Ok(out);
-    }
-    let entries: Vec<PersistedEntry> = serde_json::from_slice(&bytes)
-        .with_context(|| format!("failed to parse store {}", store_path.display()))?;
-
-    for entry in entries {
-        if entry.namespace != "metrics" {
-            continue;
-        }
-        let Some((path, metric)) = parse_metric_key(&entry.key) else {
+    for entry in Store::open(Some(store_path))?.list_metrics()? {
+        let Some((path, metric)) = parse_metric_key(&entry.name) else {
             continue;
         };
-        let value = parse_metric_value(&entry.value)?;
         let stat = out.entry(path.to_owned()).or_insert_with(|| FunctionStat {
             path: path.to_owned(),
             service: service_from_path(path).to_owned(),
             ..FunctionStat::default()
         });
         match metric {
-            "calls" => stat.calls = value,
-            "err" => stat.errors = value,
-            "blocked" => stat.blocked = value,
+            "calls" => stat.calls = entry.value,
+            "err" => stat.errors = entry.value,
+            "blocked" => stat.blocked = entry.value,
             _ => {}
         }
     }
-
     Ok(out)
 }
 
@@ -116,32 +90,6 @@ fn parse_metric_key(key: &str) -> Option<(&str, &str)> {
         }
     }
     None
-}
-
-fn parse_metric_value(value: &Value) -> Result<f64> {
-    match value {
-        Value::Number(number) => number
-            .as_f64()
-            .ok_or_else(|| anyhow::anyhow!("metric value is not a finite JSON number")),
-        Value::String(text) => text
-            .parse::<f64>()
-            .with_context(|| format!("metric value is not numeric: {text:?}")),
-        other => Err(anyhow::anyhow!(
-            "unexpected metric value type: {}",
-            value_type(other)
-        )),
-    }
-}
-
-fn value_type(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-    }
 }
 
 fn build_report(

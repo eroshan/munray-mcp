@@ -3,7 +3,7 @@
 if type(_raw) ~= "table" or type(_raw.kv) ~= "table" then return end
 
 kv = {}
-function kv.put(namespace, key, value) return _raw.kv.put(namespace, key, value) end
+function kv.put(namespace, key, value, opts) return _raw.kv.put(namespace, key, value, opts) end
 function kv.get(namespace, key) return _raw.kv.get(namespace, key) end
 function kv.delete(namespace, key) return _raw.kv.delete(namespace, key) end
 function kv.keys(namespace) return _raw.kv.keys(namespace) end

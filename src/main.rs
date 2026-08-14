@@ -23,7 +23,7 @@ struct Cli {
     /// Persist store values, saved Lua snippets, and usage metrics across processes.
     #[arg(long, global = true, env = "MUNRAY_MCP_STORE_PATH")]
     store_path: Option<PathBuf>,
-    /// Write owner-only execution telemetry JSONL logs.
+    /// Write owner-only execution JSONL logs.
     #[arg(long, global = true, env = "MUNRAY_MCP_LOGS_DIR")]
     logs_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -193,18 +193,16 @@ fn execute(
         file.as_ref().map_or("<stdin>", |_| "<file>"),
     )?;
     if let Some(logs_dir) = logs_dir {
-        mcp_server::telemetry::Logger::new(&logs_dir)?.log(
-            mcp_server::telemetry::ExecutionEntry {
-                timestamp_ms: mcp_server::telemetry::now_ms(),
-                session_id: "cli".into(),
-                mode: "mutating".into(),
-                code,
-                output: execution.output.clone(),
-                result: execution.result.clone(),
-                error: None,
-                duration_ms: started.elapsed().as_millis(),
-            },
-        )?;
+        mcp_server::logging::Logger::new(&logs_dir)?.log(mcp_server::logging::ExecutionEntry {
+            timestamp_ms: mcp_server::logging::now_ms(),
+            session_id: "cli".into(),
+            mode: "mutating".into(),
+            code,
+            output: execution.output.clone(),
+            result: execution.result.clone(),
+            error: None,
+            duration_ms: started.elapsed().as_millis(),
+        })?;
     }
     print!("{}", execution.output);
     if !execution.result.is_null() {
@@ -242,7 +240,7 @@ fn resolve_service_dir(path: Option<PathBuf>) -> Option<PathBuf> {
 
 fn resolve_store_path(path: Option<PathBuf>) -> Result<PathBuf> {
     let path = path
-        .or_else(|| data_home().map(|home| home.join("store.json")))
+        .or_else(|| data_home().map(|home| home.join("store.db")))
         .ok_or_else(|| anyhow::anyhow!("store path required: pass --store-path or set HOME"))?;
     if path.is_absolute() {
         Ok(path)

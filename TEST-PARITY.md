@@ -21,7 +21,7 @@ names. This table records the coverage mapping.
 | Standard-library isolation and raw-context enforcement | `tests/sandbox.rs`, `tests/mcp.rs` | Covered |
 | Capabilities, schemas, examples, service metadata | bundled `services/*/tests`, `tests/snippets.rs` | Covered |
 | JSON/YAML codecs and multiple return values | `tests/codecs.rs`, `tests/results.rs` | Covered |
-| Execution telemetry and stats | `tests/telemetry.rs` | Covered |
+| Execution logging and stats | `tests/logging.rs` | Covered |
 | Service-pack behavior | 22 bundled Lua tests under `services/*/tests` | Covered unchanged except host rename text |
 
 Network and Unix-socket tests are marked ignored for ordinary managed-sandbox

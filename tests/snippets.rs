@@ -1,15 +1,16 @@
 use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
 #[test]
-fn snippets_install_immediately_and_reject_overrides() {
+fn snippets_install_immediately_and_allow_definition_updates() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime.execute(
-        "local ok, err=snippets.save({path='local_tools.math.double',code='function(x) return x*2 end'}); if err then error(err.message) end; local duplicate, duplicate_err=snippets.save({path='local_tools.math.double',code='function() return 0 end'}); return {value=local_tools.math.double(6),code=duplicate_err.code}",
+        "local ok, err=snippets.save({path='local_tools.math.double',code='function(x) return x*2 end'}); if err then error(err.message) end; local updated, update_err=snippets.save({path='local_tools.math.double',code='function() return 0 end'}); return {value=local_tools.math.double(6),updated=updated,error=update_err}",
         ExecutionMode::Mutating,
         "<test>",
     ).unwrap();
-    assert_eq!(result.result["value"], 12);
-    assert_eq!(result.result["code"], "ALREADY_EXISTS");
+    assert_eq!(result.result["value"], 0);
+    assert_eq!(result.result["updated"], true);
+    assert!(result.result["error"].is_null());
 }
 
 #[test]
