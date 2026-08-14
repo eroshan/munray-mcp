@@ -197,7 +197,7 @@ A public namespace is a Lua table with `__schema`. The modular capabilities impl
 
 Capability discovery is lazy. `validate` constructs a runtime but does not call capability discovery, so malformed schema metadata can survive `validate` until a capability function is used.
 
-Dynamic snippet installation wraps the new function but does not automatically invalidate an already-populated capability cache. Callers may need `capabilities.invalidate()`.
+Dynamic snippet installation and deletion invalidate the capability cache, so the next `capabilities.ai_context()`, `schema`, `schemas`, or `examples` call discovers the current snippet functions.
 
 ## 8. MCP request lifecycle
 
@@ -431,9 +431,9 @@ Generic KV rows retain JSON text, content type, timestamps, and an optional expi
 
 ### 12.2 Persisted snippets
 
-Complete snippet rows are restored during startup. Function text is compiled in the global environment, namespaces are created dynamically, descriptors are attached, and security wrappers are reinstalled. Snippets default to `mutating=false` unless schema text says otherwise.
+Complete snippet rows are restored during startup. The public `snippets.save` definition uses `namespace` and `name` (for example, `{namespace="math", name="fibonacci"}` installs `math.fibonacci`); the durable store uses an internal dotted identifier. Its `code` may be a function expression, a chunk that returns a function, or a named Lua function declaration. Function text is compiled in the global environment, namespaces are created dynamically, descriptors are attached, and security wrappers are reinstalled. Snippets default to `mutating=false` unless schema text says otherwise.
 
-Installing/deleting a snippet changes only the current Lua runtime immediately. Other existing sessions share its durable records but do not install/remove the corresponding Lua function until they are recreated or explicitly updated themselves.
+Installing/deleting a snippet changes only the current Lua runtime immediately. Deleting the final snippet from a snippet-created namespace prunes that empty namespace, so it is no longer discoverable. Other existing sessions share its durable records but do not install/remove the corresponding Lua function until they are recreated or explicitly updated themselves.
 
 ### 12.3 Function metrics and `stats`
 
@@ -509,7 +509,6 @@ This section is a review backlog, not current behavior.
 
 15. **Make `validate` validate schemas.** Force `capabilities` discovery, report the service directories actually loaded, surface walk errors, and distinguish packs from nested `init.lua` files.
 16. **Either implement service introductions or remove the contract.** Initialization should build instructions from loaded `__intro` values if that remains part of service design.
-17. **Automatically invalidate capabilities after dynamic changes.** Snippet add/update/delete should invalidate discovery caches in the affected runtime.
 
 ### P2 — Harden resources and observability
 

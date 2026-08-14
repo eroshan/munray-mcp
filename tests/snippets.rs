@@ -14,6 +14,61 @@ fn snippets_install_immediately_and_allow_definition_updates() {
 }
 
 #[test]
+fn saved_snippets_refresh_ai_context() {
+    let runtime = LuaRuntime::new(None).unwrap();
+    let result = runtime
+        .execute(
+            r#"
+assert(capabilities.ai_context().namespaces.local_tools == nil)
+assert(snippets.save({namespace="local_tools", name="answer", code="function() return 42 end"}))
+local context = capabilities.ai_context()
+local callable = local_tools.answer()
+assert(snippets.delete("local_tools", "answer"))
+local after_delete = capabilities.ai_context()
+return {
+  callable=callable,
+  discovered=context.namespaces.local_tools.answer ~= nil,
+  removed=after_delete.namespaces.local_tools == nil,
+}
+"#,
+            ExecutionMode::Mutating,
+            "<test>",
+        )
+        .unwrap();
+    assert_eq!(result.result["callable"], 42);
+    assert_eq!(result.result["discovered"], true);
+    assert_eq!(result.result["removed"], true);
+}
+
+#[test]
+fn snippets_accept_namespace_name_and_named_lua_functions() {
+    let runtime = LuaRuntime::new(None).unwrap();
+    let result = runtime.execute(
+        r#"
+local ok, err = snippets.save({
+  namespace = "math", name = "fibonacci",
+  code = [[function fibonacci(n)
+    if n < 2 then return n end
+    return math.fibonacci(n - 1) + math.fibonacci(n - 2)
+  end]],
+})
+if err then error(err.message) end
+local definition = assert(snippets.get("math", "fibonacci"))
+local value = math.fibonacci(10)
+assert(snippets.delete("math", "fibonacci"))
+return {value=value, namespace=definition.namespace, name=definition.name, path=definition.path, deleted=math.fibonacci == nil}
+"#,
+        ExecutionMode::Mutating,
+        "<test>",
+    ).unwrap();
+    assert_eq!(result.result["value"], 55);
+    assert_eq!(result.result["namespace"], "math");
+    assert_eq!(result.result["name"], "fibonacci");
+    assert!(result.result["path"].is_null());
+    assert_eq!(result.result["deleted"], true);
+}
+
+#[test]
 fn snippets_attach_schema_examples_and_can_be_recreated() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime.execute(
@@ -22,7 +77,7 @@ snippets.save({path='local_tools.echo',code='function(x) return x end',schema_ex
 local schema=capabilities.schema('local_tools')
 local description, example=schema.functions[1].description,capabilities.examples('local_tools.echo')
 snippets.delete('local_tools.echo')
-local absent=local_tools.echo == nil
+local absent=local_tools == nil or local_tools.echo == nil
 snippets.save({path='local_tools.echo',code='function() return 2 end'})
 return {description=description,example=example,absent=absent,value=local_tools.echo()}
 "#,

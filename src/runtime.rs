@@ -595,7 +595,17 @@ impl LuaRuntime {
             "save",
             self.lua
                 .create_function(move |lua, definition: mlua::Table| {
-                    let path: String = definition.get("path")?;
+                    let path = definition
+                        .get::<Option<String>>("path")?
+                        .or_else(|| {
+                            let namespace =
+                                definition.get::<Option<String>>("namespace").ok()??;
+                            let name = definition.get::<Option<String>>("name").ok()??;
+                            Some(format!("{namespace}.{name}"))
+                        })
+                        .ok_or_else(|| {
+                            mlua::Error::runtime("snippet definition requires namespace and name")
+                        })?;
                     let result: MultiValue = original_save.call(definition)?;
                     if matches!(result.front(), Some(Value::Boolean(true))) {
                         registry.lock().remove(&path);
@@ -620,8 +630,18 @@ impl LuaRuntime {
         let session_env = Arc::clone(&self.session_env);
         snippets.set(
             "delete",
-            self.lua.create_function(move |lua, path: String| {
-                let result: MultiValue = original_delete.call(path.clone())?;
+            self.lua.create_function(move |lua, args: MultiValue| {
+                let mut values = args.clone().into_iter();
+                let namespace = match values.next() {
+                    Some(Value::String(value)) => value.to_string_lossy().to_owned(),
+                    _ => return Err(mlua::Error::runtime("snippet delete requires namespace")),
+                };
+                let path = match values.next() {
+                    Some(Value::String(name)) => format!("{namespace}.{}", name.to_string_lossy()),
+                    None | Some(Value::Nil) => namespace,
+                    _ => return Err(mlua::Error::runtime("snippet delete name must be a string")),
+                };
+                let result: MultiValue = original_delete.call(args)?;
                 if matches!(result.front(), Some(Value::Boolean(true))) {
                     registry.lock().remove(&path);
                     Self::install_security_wrappers_on(
