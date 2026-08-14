@@ -3,9 +3,8 @@
 -- This module provides functions to check status, retrieve results, and wait on
 -- background tasks started via _raw.cli.start_*, _raw.http.start_*, etc.
 --
--- IMPORTANT: Task records are retained for ~5 minutes after completion. After this period,
--- tasks are cleaned up and async_task.* queries may return NOT_FOUND.
--- Tasks are also session-scoped: you must poll/result/wait using the same munray-mcp session
+-- Task records are retained for the lifetime of their runtime. Tasks are
+-- session-scoped: you must poll/result/wait using the same munray-mcp session
 -- that created the task_id.
 --
 -- NOTE: This namespace is called `async_task` (not `task`) to avoid common variable
@@ -71,6 +70,17 @@ function async_task.wait(task_id, timeout_ms)
 
   timeout_ms = timeout_ms or 295000
   return _raw.task.wait(task_id, timeout_ms)
+end
+
+-- async_task.cancel(task_id) -> (cancelled, err)
+-- Requests cancellation of a running task. CLI tasks observe this request while
+-- polling their child process; transport tasks may only update visible state.
+function async_task.cancel(task_id)
+  if not task_id then
+    return nil, { code = "VALIDATION", message = "task_id is required", recoverable = false }
+  end
+
+  return _raw.task.cancel(task_id)
 end
 
 -- Schema for async_task API (for capabilities discovery)
@@ -141,7 +151,7 @@ return result
         { name = "result", type = "any", description = "Task result if completed" },
         { name = "err", type = "core.error|nil", description = "Error if wait timeout is exceeded, the task fails, or it is cancelled; structured task errors are preserved when available" }
       },
-      description = "Waits for a task to complete, blocking until finished or timeout. Default timeout is 4m55s (just under task retention limit).",
+      description = "Waits for a task to complete, blocking until finished or timeout.",
       examples = [[
 -- Start async operation and wait for completion
 local task_id = _raw.cli.start_json("gcloud", {"projects", "list", "--format=json"})
@@ -155,6 +165,21 @@ if err then
 end
 return result
 ]]
+    },
+    {
+      path = "async_task.cancel",
+      name = "cancel",
+      signature = "(task_id)",
+      returns_contract = "core.result",
+      mutating = false,
+      params = {
+        { name = "task_id", type = "string", description = "Task identifier" }
+      },
+      returns_typed = {
+        { name = "result", type = "boolean", description = "Whether cancellation was requested" },
+        { name = "err", type = "core.error|nil", description = "Error if the task does not exist" }
+      },
+      description = "Request cancellation of a running task"
     }
   }
 }

@@ -127,10 +127,6 @@ impl LuaRuntime {
         runtime.install_snippet_hooks()?;
         runtime.install_security_wrappers()?;
         runtime.finish_raw_authorization(allow_direct_raw);
-        runtime
-            .lua
-            .load("__install_security_wrappers = nil; __authorized_invoke = nil; __legacy_snippet_save = nil; __legacy_snippet_delete = nil; __snippet_pending = nil; store = nil")
-            .exec()?;
         if !allow_direct_raw {
             runtime.install_session_environment()?;
         }
@@ -375,10 +371,9 @@ impl LuaRuntime {
 
         globals.set("__runtime", self.lua.create_table()?)?;
 
-        self.lua
-            .load(include_str!("preload.lua"))
-            .set_name("@core/preload.lua")
-            .exec()?;
+        // The core Lua API has one source of truth: the modular preload files.
+        // Keep their load order explicit because later modules may depend on
+        // namespaces installed by earlier ones.
         for (name, source) in [
             ("@core/helpers.lua", include_str!("preload/helpers.lua")),
             ("@core/errutil.lua", include_str!("preload/errutil.lua")),
@@ -397,16 +392,10 @@ impl LuaRuntime {
             .load(include_str!("preload/test.lua"))
             .set_name("@core/test.lua")
             .exec()?;
-        let runtime_async_task: mlua::Table = self.lua.globals().get("async_task")?;
         self.lua
             .load(include_str!("preload/task.lua"))
             .set_name("@core/task.lua")
             .exec()?;
-        let reference_async_task: mlua::Table = self.lua.globals().get("async_task")?;
-        reference_async_task.set(
-            "cancel",
-            runtime_async_task.get::<mlua::Function>("cancel")?,
-        )?;
         for (name, source) in [
             ("@core/vfs.lua", include_str!("preload/vfs.lua")),
             ("@core/ingest.lua", include_str!("preload/ingest.lua")),

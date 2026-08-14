@@ -115,8 +115,7 @@ Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. 
 | Lua runtime | `src/runtime.rs` | VM construction, raw registration, preload, execution, conversion, restrictions. |
 | Durable storage | `src/storage.rs` | SQLite lifecycle, KV expiry, metrics, snippets, schema initialization, and Lua storage bridges. |
 | Service loading | `src/services.rs` | Deterministic source/example discovery and execution. |
-| Core Lua bootstrap | `src/preload.lua` | Raw guards, schema wrappers, metrics hooks, dynamic snippets, compatibility implementations. |
-| Modular core Lua | `src/preload/*.lua` | Helpers, capabilities, store schema, tasks, VFS, ingest, error translation, tests. |
+| Core Lua bootstrap | `src/preload/*.lua` | Helpers, capabilities, KV/snippet schemas, tasks, VFS, ingest, error translation, and tests. |
 | HTTP/GraphQL | `src/http.rs` | Requests, auth application, retries, pagination, async request starters. |
 | Process execution | `src/process.rs` | Child lifecycle, timeout/cancellation polling, bounded output capture. |
 | Tasks | `src/tasks.rs` | Per-runtime task registry, worker threads, status/result/wait/cancel. |
@@ -150,12 +149,12 @@ The durable store is shared between MCP sessions. Trusted Lua globals, function 
 2. Create runtime-local VFS/blob/ingest/output state, Rust raw-authorization state, and an immutable function registry.
 3. Open or create the shared store map and register Rust raw facilities, including internal storage and public namespaced KV operations.
 4. Wrap every raw Rust function with a Rust authorization guard. Bootstrap is initially authorized.
-5. Execute embedded and modular trusted preload code, then load trusted service packs and restored snippets.
+5. Execute the embedded modular trusted preload code, then load trusted service packs and restored snippets.
 6. Install Rust-created schema wrappers, each capturing immutable operation policy and original Lua function. Their RAII raw scope authorizes nested raw calls and iterator steps.
 7. Disable bootstrap authorization and retain direct raw access only for local CLI/test runtimes.
 8. For MCP runtimes, build a separate session `_ENV` containing pure Lua facilities and cloned public API tables. Raw/internal globals and unsafe standard libraries are omitted.
 
-The monolithic and modular preload layers overlap substantially. Which implementation wins currently depends on explicit replacement/copy logic in `runtime.rs`; this is an architectural compatibility mechanism, not a clean layering boundary.
+The modular preload files are the sole Lua bootstrap implementation. Their explicit load order in `runtime.rs` is the dependency order between core Lua namespaces.
 
 ### 6.1 Direct-raw and standard-library modes
 
@@ -508,7 +507,6 @@ This section is a review backlog, not current behavior.
 
 ### P1 — Consolidate bootstrap and validation
 
-14. **Choose one preload implementation.** Remove the monolithic/modular duplication and function-copy merge. Give each public namespace and schema one source file.
 15. **Make `validate` validate schemas.** Force `capabilities` discovery, report the service directories actually loaded, surface walk errors, and distinguish packs from nested `init.lua` files.
 16. **Either implement service introductions or remove the contract.** Initialization should build instructions from loaded `__intro` values if that remains part of service design.
 17. **Automatically invalidate capabilities after dynamic changes.** Snippet add/update/delete should invalidate discovery caches in the affected runtime.
