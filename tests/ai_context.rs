@@ -1,13 +1,12 @@
-use std::path::Path;
-
 use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
-const GO_AI_CONTEXT: &str = include_str!("fixtures/go-ai-context.json");
+const CORE_AI_CONTEXT: &str = include_str!("fixtures/core-ai-context.json");
 
 #[test]
-fn ai_context_matches_the_go_reference_exactly() {
-    let services = Path::new(env!("CARGO_MANIFEST_DIR")).join("services");
-    let runtime = LuaRuntime::new(Some(&services)).unwrap();
+fn core_ai_context_matches_the_reference_exactly() {
+    // Service namespaces and hints are user-defined. Test the core schema in
+    // isolation so installed services cannot affect this reference output.
+    let runtime = LuaRuntime::new(None).unwrap();
 
     let context = runtime
         .execute(
@@ -16,7 +15,7 @@ fn ai_context_matches_the_go_reference_exactly() {
             "<ai-context-parity>",
         )
         .unwrap();
-    let expected: serde_json::Value = serde_json::from_str(GO_AI_CONTEXT).unwrap();
+    let expected: serde_json::Value = serde_json::from_str(CORE_AI_CONTEXT).unwrap();
     assert_eq!(context.result, expected);
 
     let encoded = runtime
@@ -26,5 +25,5 @@ fn ai_context_matches_the_go_reference_exactly() {
             "<ai-context-encoding-parity>",
         )
         .unwrap();
-    assert_eq!(encoded.result.as_str().unwrap(), GO_AI_CONTEXT.trim_end());
+    assert_eq!(encoded.result.as_str().unwrap(), CORE_AI_CONTEXT.trim_end());
 }
