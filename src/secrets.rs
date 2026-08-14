@@ -263,10 +263,10 @@ mod tests {
         raw.set("secrets", lua.create_table().unwrap()).unwrap();
         let allowed = Arc::new(Mutex::new(vec!["sh".to_owned()]));
         register(&lua, &raw, allowed).unwrap();
-        lua.globals().set("_raw", raw).unwrap();
+        lua.globals().set("sys", raw).unwrap();
         let reference: Value = lua
             .load(
-                r#"local value, err = _raw.secrets.command({tool="sh",args={"-c","printf secret-value"},timeout=2,ttl_s=10}); assert(not err); return value"#,
+                r#"local value, err = sys.secrets.command({tool="sh",args={"-c","printf secret-value"},timeout=2,ttl_s=10}); assert(not err); return value"#,
             )
             .eval()
             .unwrap();
@@ -286,9 +286,9 @@ mod tests {
         raw.set("secrets", lua.create_table().unwrap()).unwrap();
         let allowed = Arc::new(Mutex::new(Vec::new()));
         register(&lua, &raw, allowed).unwrap();
-        lua.globals().set("_raw", raw).unwrap();
+        lua.globals().set("sys", raw).unwrap();
         let reference: Value = lua
-            .load(r#"return _raw.secrets.command({tool="sh"})"#)
+            .load(r#"return sys.secrets.command({tool="sh"})"#)
             .eval()
             .unwrap();
         let reference: JsonValue = lua.from_value(reference).unwrap();

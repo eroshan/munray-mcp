@@ -31,7 +31,7 @@ local pages = helpers.collect(
 )
 print("Pages found:", #pages)
 
--- Modification examples (require mutating mode)
+-- Modification examples (require guarded mode)
 
 -- Update content with auto-version (no need to fetch current version first)
 local updated, err4 = confluence.page.update(123456, {

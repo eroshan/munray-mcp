@@ -18,7 +18,7 @@ jira.field.__schema = {
             returns_typed = {
                 { name = "iterator", type = "Iterator", description = "Iterator yielding compact Field objects" }
             },
-            mutating = false,
+            readonly = true,
             examples = [[
 local iter, err = jira.field.list({ query = "target", limit = 10 })
 if err then error(err.message or tostring(err)) end

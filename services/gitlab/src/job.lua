@@ -6,12 +6,12 @@
 local client = gitlab._get_client()
 
 -- Capture raw primitives at load time
-local raw_blob_from_cli = _raw.blob and _raw.blob.from_cli or nil
-local raw_blob_len = _raw.blob and _raw.blob.len or nil
+local raw_blob_from_cli = sys.blob and sys.blob.from_cli or nil
+local raw_blob_len = sys.blob and sys.blob.len or nil
 
 -- Capture VFS helpers (core preload)
 local vfs_ensure_parent = vfs and vfs.ensure_parent or nil
-local raw_vfs_write_blob = _raw.vfs and _raw.vfs.write_blob or nil
+local raw_vfs_write_blob = sys.vfs and sys.vfs.write_blob or nil
 
 gitlab.job.__schema = {
 	namespace = "gitlab.job",
@@ -22,7 +22,7 @@ gitlab.job.__schema = {
 			path = "gitlab.job.get",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Fetch a single job by ID",
 			params = { { name = "repo", type = "string|number" }, { name = "id", type = "number" } },
 			returns_typed = { { name = "result", type = "Job" }, { name = "err", type = "core.error|nil" } },
@@ -33,7 +33,7 @@ gitlab.job.__schema = {
 			signature = "(repo, pipeline_id, opts)",
 			returns_contract = "core.iter",
 			yields = "Job",
-			mutating = false,
+			readonly = true,
 			description = "List jobs for a pipeline with optional filtering (returns iterator; use helpers.collect() to materialize to array). Supports scope (status filter), stages, name_pattern, and exclude_names options.",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -48,7 +48,7 @@ gitlab.job.__schema = {
 			signature = "(repo, pipeline_id, opts)",
 			returns_contract = "core.iter",
 			yields = "Job",
-			mutating = false,
+			readonly = true,
 			description = "List trigger jobs (bridge jobs) for a pipeline (returns iterator; use helpers.collect() to materialize to array). Items often include a downstream_pipeline field for the triggered pipeline.",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -62,7 +62,7 @@ gitlab.job.__schema = {
 			path = "gitlab.job.log",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Fetch job log",
 			params = { { name = "repo", type = "string|number" }, { name = "id", type = "number" } },
 			returns_typed = { { name = "result", type = "string" }, { name = "err", type = "core.error|nil" } },
@@ -72,7 +72,7 @@ gitlab.job.__schema = {
 			path = "gitlab.job.retry",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Retry a failed job",
 			params = { { name = "repo", type = "string|number" }, { name = "id", type = "number" } },
 			returns_typed = { { name = "result", type = "Job" }, { name = "err", type = "core.error|nil" } },
@@ -82,7 +82,7 @@ gitlab.job.__schema = {
 			path = "gitlab.job.play",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Play (trigger) a manual job",
 			params = { { name = "repo", type = "string|number" }, { name = "id", type = "number" } },
 			returns_typed = { { name = "result", type = "Job" }, { name = "err", type = "core.error|nil" } },
@@ -92,7 +92,7 @@ gitlab.job.__schema = {
 			path = "gitlab.job.pipeline",
 			signature = "(repo, id)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Get the parent pipeline for this job",
 			params = { { name = "repo", type = "string|number" }, { name = "id", type = "number" } },
 			returns_typed = { { name = "result", type = "Pipeline" }, { name = "err", type = "core.error|nil" } },
@@ -102,8 +102,8 @@ gitlab.job.__schema = {
 			path = "gitlab.job.artifact_download",
 			signature = "(repo, id, opts)",
 			returns_contract = "core.result",
-			mutating = false,
-			description = "Download the artifacts archive for a specific job ID (GitLab Job Artifacts API) into the session VFS. Captures the binary archive as a blob (no bytes exposed to Lua) and writes it to opts.file via _raw.vfs.write_blob(). Expose the resulting VFS file with vfs.expose({...}) when you need a host-readable path for agent inspection.",
+			readonly = true,
+			description = "Download the artifacts archive for a specific job ID (GitLab Job Artifacts API) into the session VFS. Captures the binary archive as a blob (no bytes exposed to Lua) and writes it to opts.file via sys.vfs.write_blob(). Expose the resulting VFS file with vfs.expose({...}) when you need a host-readable path for agent inspection.",
 			params = {
 				{ name = "repo", type = "string|number", description = "Project path like 'group/project' or numeric project id (used to resolve project id)." },
 				{ name = "id", type = "number", description = "Job id" },
@@ -115,7 +115,7 @@ gitlab.job.__schema = {
 				local res, err = gitlab.job.artifact_download("group/project", 123456, { file = "artifacts/job-123456.zip" })
 				if err then error(err) end
 
-				-- Expose the archive as a host-readable temp file (mutating mode required)
+				-- Expose the archive as a host-readable temp file (guarded mode required)
 				local exposed, err2 = vfs.expose({res.file})
 				if err2 then error(err2) end
 				return { downloaded = res, exposed = exposed.files[1] }
@@ -239,7 +239,7 @@ function gitlab.job.play(repo, id)
 	return client.request_json("GET", repo, "jobs/" .. id, nil, nil)
 end
 
--- Download job artifacts archive by job id into the session VFS (non-mutating by policy).
+-- Download job artifacts archive by job id into the session VFS (non-guarded by policy).
 -- API: GET /projects/:id/jobs/:job_id/artifacts
 function gitlab.job.artifact_download(repo, id, opts)
 	if type(opts) ~= "table" then
@@ -254,7 +254,7 @@ function gitlab.job.artifact_download(repo, id, opts)
 	if raw_blob_from_cli == nil or raw_blob_len == nil then
 		return nil, {
 			code = "NOT_AVAILABLE",
-			message = "gitlab.job.artifact_download: blob primitives not available (requires munray-mcp core with _raw.blob.*)",
+			message = "gitlab.job.artifact_download: blob primitives not available (requires munray-mcp core with sys.blob.*)",
 			recoverable = false,
 		}
 	end
@@ -262,7 +262,7 @@ function gitlab.job.artifact_download(repo, id, opts)
 	if vfs_ensure_parent == nil or raw_vfs_write_blob == nil then
 		return nil, {
 			code = "NOT_AVAILABLE",
-			message = "gitlab.job.artifact_download: VFS helpers not available (requires munray-mcp core with _raw.vfs.* + vfs.ensure_parent)",
+			message = "gitlab.job.artifact_download: VFS helpers not available (requires munray-mcp core with sys.vfs.* + vfs.ensure_parent)",
 			recoverable = false,
 		}
 	end

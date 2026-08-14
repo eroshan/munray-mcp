@@ -35,12 +35,12 @@ local recent, recent_err = helpers.collect(gitlab.pipeline.list(repo, { order_by
 if recent_err then error(recent_err) end
 print("Collected", #recent, "recent pipelines")
 
--- Cancel pipeline (requires mutating mode, reuses session vars)
+-- Cancel pipeline (requires guarded mode, reuses session vars)
 local ok, cancel_err = gitlab.pipeline.cancel(repo, pipeline_id)
 if cancel_err then error(cancel_err) end
 print("Cancelled:", ok)
 
--- Retry pipeline (requires mutating mode, reuses session vars)
+-- Retry pipeline (requires guarded mode, reuses session vars)
 local retried_pipeline, retry_err = gitlab.pipeline.retry(repo, pipeline_id)
 if retry_err then error(retry_err) end
 print("Retried:", retried_pipeline.id)
@@ -67,14 +67,14 @@ end
 -- Create/Trigger Pipelines
 -- ============================================================================
 
--- Create a basic pipeline (requires mutating mode)
+-- Create a basic pipeline (requires guarded mode)
 local new_pipeline, create_err = gitlab.pipeline.create(repo, {
     ref = "master"
 })
 if create_err then error(create_err) end
 print("Created pipeline:", new_pipeline.id, new_pipeline.web_url, new_pipeline.status)
 
--- Create pipeline with variables (requires mutating mode)
+-- Create pipeline with variables (requires guarded mode)
 local pipeline_with_vars, vars_err = gitlab.pipeline.create(repo, {
   ref = "develop",
   variables = {
@@ -86,7 +86,7 @@ local pipeline_with_vars, vars_err = gitlab.pipeline.create(repo, {
 if vars_err then error(vars_err) end
 print("Pipeline with variables:", pipeline_with_vars.id, pipeline_with_vars.web_url)
 
--- Create pipeline with inputs (GitLab 18.1+, requires mutating mode)
+-- Create pipeline with inputs (GitLab 18.1+, requires guarded mode)
 local pipeline_with_inputs, inputs_err = gitlab.pipeline.create(repo, {
   ref = "main",
   inputs = {

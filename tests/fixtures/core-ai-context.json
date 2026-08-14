@@ -36,7 +36,7 @@
     "global": [
       "Use capabilities.schema(target) for types/docs",
       "Use capabilities.examples(target) for code",
-      "Ops ending with * are mutating; require mutating mode"
+      "Ops ending with * are guarded; require guarded mode"
     ],
     "namespaces": {
       "vfs": "Sandboxed runtime-local VFS, not host filesystem. Paths are VFS-relative; use vfs.expose() for host-visible temp copies."
@@ -86,10 +86,10 @@
       "put": "(namespace, key, value)* -> core.result"
     },
     "snippets": {
-      "delete": "(path)* -> core.result",
-      "get": "(path) -> core.result",
+      "delete": "(namespace, name)* -> core.result",
+      "get": "(namespace, name) -> core.result",
       "list": "() -> core.result",
-      "save": "(definition)* -> core.result"
+      "save": "({namespace:string, name:string, code:string, ...})* -> core.result"
     },
     "vfs": {
       "ensure_parent": "(path) -> core.result",

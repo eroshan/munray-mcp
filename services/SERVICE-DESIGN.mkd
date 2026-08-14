@@ -17,8 +17,8 @@ A service pack:
 - is loaded from the filesystem (not embedded in the munray-mcp binary)
 - should be stateless (no hidden global state required to call functions)
 - declares `__schema` metadata so the core `capabilities.*` API can expose function signatures/types/examples
-- may be CLI-based (using `_raw.cli.text`, `_raw.cli.json`, `_raw.cli.start_text`, `_raw.cli.start_json`), HTTP-based (using `_raw.http.request`, `_raw.http.list`, `_raw.http.start_request`), or GraphQL-based (using `_raw.graphql.request`, `_raw.graphql.list`, `_raw.graphql.start_request`)
-- may use the scratch Virtual FS (VFS) + blob handles for binary-safe workflows (see `_raw.blob.*`, `_raw.vfs.*`, and convenience `vfs.*`)
+- may be CLI-based (using `sys.cli.text`, `sys.cli.json`, `sys.cli.start_text`, `sys.cli.start_json`), HTTP-based (using `sys.http.request`, `sys.http.list`, `sys.http.start_request`), or GraphQL-based (using `sys.graphql.request`, `sys.graphql.list`, `sys.graphql.start_request`)
+- may use the scratch Virtual FS (VFS) + blob handles for binary-safe workflows (see `sys.blob.*`, `sys.vfs.*`, and convenience `vfs.*`)
 
 ---
 
@@ -51,7 +51,7 @@ SVC_DIR/
 - optionally define `myservice.__allowed_cli_commands` as the explicit list of CLI commands the service is allowed to execute
 - capture raw primitives into locals (upvalues) at load time
 
-Capturing raw primitives prevents user code from monkey-patching `_raw` transport primitives after load and ensures consistent behavior:
+Capturing raw primitives prevents user code from monkey-patching `sys` transport primitives after load and ensures consistent behavior:
 
 ```lua
 -- src/init.lua
@@ -65,10 +65,10 @@ Prefer narrow scope and structured outputs.
 myservice.__allowed_cli_commands = { "myservice-cli" }
 
 -- Capture raw primitives as upvalues
-local raw_cli_json = _raw.cli.json
-local raw_http_request = _raw.http.request
+local raw_cli_json = sys.cli.json
+local raw_http_request = sys.http.request
 
--- Do not build execution-mode guards in Lua; Go core enforces read-only vs mutating.
+-- Do not build execution-mode guards in Lua; Go core enforces read-only vs guarded.
 ```
 
 ### 2.2 Internal Modules
@@ -84,13 +84,13 @@ Use internal modules for shared logic, but keep them private:
 
 The core runtime loads Lua in a deterministic order:
 
-1. Go raw primitives are available (`_raw.exec_mode`, `_raw.cli.text`, `_raw.cli.json`, `_raw.cli.start_text`, `_raw.cli.start_json`, `_raw.http.request`, `_raw.http.list`, `_raw.http.start_request`, `_raw.url.query_escape`, `_raw.url.query_unescape`, `_raw.url.path_escape`, `_raw.url.path_unescape`, `_raw.graphql.request`, `_raw.graphql.list`, `_raw.graphql.start_request`, `_raw.task.status`, `_raw.task.result`, `_raw.task.cancel`, `_raw.task.wait`, `_raw.secrets.env`, `_raw.secrets.command`, `_raw.auth.basic`, `_raw.auth.bearer`, `_raw.test.start_task`, `_raw.store.put`, `_raw.store.get`, `_raw.store.delete`, `_raw.store.keys`, `_raw.store.len`, `_raw.store.clear`, `_raw.store.cache_set`, `_raw.store.cache_get`, `_raw.blob.from_cli`, `_raw.blob.from_http`, `_raw.blob.len`, `_raw.vfs.mkdirp`, `_raw.vfs.write_text`, `_raw.vfs.write_blob`, `_raw.vfs.read_text`, `_raw.vfs.stat`, `_raw.vfs.list`, `_raw.vfs.to_text`, `_raw.vfs.expose`)
+1. Go raw primitives are available (`sys.exec_mode`, `sys.cli.text`, `sys.cli.json`, `sys.cli.start_text`, `sys.cli.start_json`, `sys.http.request`, `sys.http.list`, `sys.http.start_request`, `sys.url.query_escape`, `sys.url.query_unescape`, `sys.url.path_escape`, `sys.url.path_unescape`, `sys.graphql.request`, `sys.graphql.list`, `sys.graphql.start_request`, `sys.task.status`, `sys.task.result`, `sys.task.cancel`, `sys.task.wait`, `sys.secrets.env`, `sys.secrets.command`, `sys.auth.basic`, `sys.auth.bearer`, `sys.test.start_task`, `sys.store.put`, `sys.store.get`, `sys.store.delete`, `sys.store.keys`, `sys.store.len`, `sys.store.clear`, `sys.store.cache_set`, `sys.store.cache_get`, `sys.blob.from_cli`, `sys.blob.from_http`, `sys.blob.len`, `sys.vfs.mkdirp`, `sys.vfs.write_text`, `sys.vfs.write_blob`, `sys.vfs.read_text`, `sys.vfs.stat`, `sys.vfs.list`, `sys.vfs.to_text`, `sys.vfs.expose`)
 2. Embedded preload Lua executes (helpers, store, task, vfs, capabilities)
 3. Service packs load:
    - all `<service>/src/init.lua` files (alphabetically by service)
    - all other `<service>/src/**/*.lua` files (alphabetically by path)
 4. The core captures security validators to prevent runtime overrides
-5. User code executes (REPL or MCP). In REPL and `./munray-mcp test`, direct `_raw.*` calls are allowed for debugging and service-pack tests.
+5. User code executes (REPL or MCP). In REPL and `./munray-mcp test`, direct `sys.*` calls are allowed for debugging and service-pack tests.
 
 Implications for pack authors:
 
@@ -156,20 +156,20 @@ end
 
 ---
 
-## 5. Execution Modes (Read-only vs Mutating)
+## 5. Execution Modes (Read-only vs Guarded)
 
 The core enforces execution mode:
 
 - **Read-only**: safe-by-default tool for broad exposure
-- **Mutating**: explicit opt-in tool for writes; may require operator confirmation
+- **Guarded**: explicit opt-in tool for writes; may require operator confirmation
 
-Service-pack Lua must not implement any execution-mode validation (no `_raw.exec_mode()` branching, no Lua-side allow/deny lists). The only Lua-side mutation signal is `__schema.functions[].mutating = true`; Go core uses schema metadata to wrap/enforce mutating calls. Raw primitives are internal-only and must be used only from schema-backed public wrappers.
+Service-pack Lua must not implement any execution-mode validation (no `sys.exec_mode()` branching, no Lua-side allow/deny lists). The only Lua-side mutation signal is `__schema.functions[].readonly = false`; Go core uses schema metadata to wrap/enforce guarded calls. Raw primitives are internal-only and must be used only from schema-backed public wrappers.
 
-### 5.1 Mark Mutating Functions in Schema
+### 5.1 Mark Guarded Functions in Schema
 
-Every mutating function must be marked:
+Every guarded function must be marked:
 
-- `__schema.functions[].mutating = true`
+- `__schema.functions[].readonly = false`
 
 This allows:
 
@@ -178,13 +178,13 @@ This allows:
 
 ### 5.2 Transport and Mutation Policy
 
-Transport details are **not** the source of truth for mutating policy.
+Transport details are **not** the source of truth for guarded policy.
 
-- Do **not** pass extra mutation markers such as `opts.mutating = true`
-- Do **not** rely on transport shape (CLI verb, HTTP method, GraphQL operation type) as the mutating declaration
-- Declare mutation only once: `__schema.functions[].mutating = true`
+- Do **not** pass extra mutation markers such as `opts.readonly = false`
+- Do **not** rely on transport shape (CLI verb, HTTP method, GraphQL operation type) as the guarded declaration
+- Declare mutation only once: `__schema.functions[].readonly = false`
 
-Raw primitives are internal implementation tools. Go derives mutating policy from the enclosing schema-backed public wrapper, not from raw transport arguments.
+Raw primitives are internal implementation tools. Go derives guarded policy from the enclosing schema-backed public wrapper, not from raw transport arguments.
 
 ### 5.3 Refresh Pattern
 
@@ -201,7 +201,7 @@ Some expensive read-only operations may be exposed as **delayed/background tasks
 Rules:
 
 - Service packs must not run Lua in the background; background work runs in Go and returns a **Task handle** (`task_id`, a string).
-- Starting async work is done via `_raw.cli.start_text`, `_raw.cli.start_json`, or `_raw.http.start_request` (see Transport Primitives below).
+- Starting async work is done via `sys.cli.start_text`, `sys.cli.start_json`, or `sys.http.start_request` (see Transport Primitives below).
 - Async start calls snapshot the caller's remaining execution deadline at start time. Any transport/provider timeout inside the task is capped by that external deadline snapshot, but the task is not cancelled just because the start call already returned.
 - Polling and retrieving results is done via the core `async_task.*` API:
   - `async_task.status(task_id) -> (status, err)`
@@ -255,7 +255,7 @@ myservice.resource.__schema = {
       name = "get",
       signature = "(id)",
       description = "Fetch a resource by id.",
-      mutating = false,
+      readonly = true,
       returns_contract = "core.result",
       params = {
         { name = "id", type = "string", optional = false },
@@ -294,7 +294,7 @@ myservice.resource.__schema = {
       name = "list",
       signature = "(opts?)",
       description = "List resources (lazy iterator).",
-      mutating = false,
+      readonly = true,
       returns_contract = "core.iter",
       yields = "Resource",
       params = {
@@ -342,7 +342,7 @@ Example style guidance:
 - Keep examples focused and compact; include only the minimum setup needed to understand the call.
 - Examples are documentation loaded by `capabilities.examples(...)`; they are not executed automatically by `./munray-mcp test` unless a test explicitly loads and runs them.
 - Do not add read-only fallback branches, `run_*` gates, or other test-phase protections unless the example genuinely needs them.
-- For mutating APIs, it is fine for the example to show the direct mutating call when that is the clearest usage.
+- For guarded APIs, it is fine for the example to show the direct guarded call when that is the clearest usage.
 
 Lookup order:
 
@@ -364,103 +364,103 @@ Non-blocking warnings:
 
 ### 7.0 Complete Raw Primitive Surface (Core)
 
-For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `_raw.*` calls are also allowed in the local REPL and `./munray-mcp test` for debugging and service-pack tests.
+For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `sys.*` calls are also allowed in the local REPL and `./munray-mcp test` for debugging and service-pack tests.
 
 - Execution mode:
-  - `_raw.exec_mode() -> "readonly"|"mutating"` (introspection only; do not use for Lua-side permission checks)
+  - `sys.exec_mode() -> "readonly"|"guarded"` (introspection only; do not use for Lua-side permission checks)
 - CLI (sync):
-  - `_raw.cli.text(tool, args, opts?) -> (stdout|nil, err)`
-  - `_raw.cli.json(tool, args, opts?) -> (value|nil, err)`
+  - `sys.cli.text(tool, args, opts?) -> (stdout|nil, err)`
+  - `sys.cli.json(tool, args, opts?) -> (value|nil, err)`
   - `args` is an array-like Lua table of strings/numbers/bools; `opts` supports `{timeout:number(seconds)?, cwd:string?}`
   - When `opts.timeout` is omitted, CLI execution inherits the active caller deadline and only falls back to the shared 60s default when no caller deadline exists.
 - CLI (async):
-  - `_raw.cli.start_text(tool, args, opts?) -> (task_id|nil, err)`
-  - `_raw.cli.start_json(tool, args, opts?) -> (task_id|nil, err)`
+  - `sys.cli.start_text(tool, args, opts?) -> (task_id|nil, err)`
+  - `sys.cli.start_json(tool, args, opts?) -> (task_id|nil, err)`
 - HTTP (sync):
-  - `_raw.http.request(method, base_url, path, opts?) -> (value|nil, err)`
+  - `sys.http.request(method, base_url, path, opts?) -> (value|nil, err)`
   - HTTP/GraphQL transport inherits the active caller deadline end-to-end (including auth resolution and retries) and only falls back to the shared 60s default when no caller deadline exists.
   - `opts` supports `{query:table?, headers:table?, auth:AuthRef?, body:any?}`
 - HTTP (iter):
-  - `_raw.http.list(method, base_url, path, opts) -> iterator` (throws mid-stream on transport/decoding failures)
+  - `sys.http.list(method, base_url, path, opts) -> iterator` (throws mid-stream on transport/decoding failures)
   - `opts.pagination` may also include `missing_items_as_empty:boolean` to treat a missing `items_path` field as an empty page/result instead of an extraction error. Use this only for APIs that legitimately omit the collection field on empty results.
 - HTTP (async):
-  - `_raw.http.start_request(method, base_url, path, opts?) -> (task_id|nil, err)`
+  - `sys.http.start_request(method, base_url, path, opts?) -> (task_id|nil, err)`
 - URL helpers:
-  - `_raw.url.query_escape(s) -> escaped_string`
-  - `_raw.url.query_unescape(s) -> (unescaped|nil, err)`
-  - `_raw.url.path_escape(s) -> escaped_string`
-  - `_raw.url.path_unescape(s) -> (unescaped|nil, err)`
+  - `sys.url.query_escape(s) -> escaped_string`
+  - `sys.url.query_unescape(s) -> (unescaped|nil, err)`
+  - `sys.url.path_escape(s) -> escaped_string`
+  - `sys.url.path_unescape(s) -> (unescaped|nil, err)`
 - GraphQL (sync):
-  - `_raw.graphql.request(base_url, document, opts?) -> (data|nil, err)`
+  - `sys.graphql.request(base_url, document, opts?) -> (data|nil, err)`
   - `opts` supports `{path:string?, variables:table?, operation_name:string?, headers:HeaderList|table?, auth:AuthRef?, response_mode:"data"|"envelope"?}`
   - header lists may be ordered arrays like `{ {name="X-ExperimentalApi", value="beta-1"}, {name="X-ExperimentalApi", value="beta-2"} }`
 - GraphQL (iter):
-  - `_raw.graphql.list(base_url, document, opts) -> iterator` (throws mid-stream on transport/decoding/GraphQL failures)
+  - `sys.graphql.list(base_url, document, opts) -> iterator` (throws mid-stream on transport/decoding/GraphQL failures)
   - supports `pagination.kind = "cursor"` or `"offset"`
 - GraphQL (async):
-  - `_raw.graphql.start_request(base_url, document, opts?) -> (task_id|nil, err)`
+  - `sys.graphql.start_request(base_url, document, opts?) -> (task_id|nil, err)`
 - Store (Go KV):
-  - `_raw.store.put(type, key, value, opts?) -> (true|nil, err)`
-  - `_raw.store.get(type, key) -> (value|nil, err)`
-  - `_raw.store.delete(type, key) -> (deleted|nil, err)`
-  - `_raw.store.keys(type) -> (keys|nil, err)`
-  - `_raw.store.len(type) -> (count|nil, err)`
-  - `_raw.store.clear(type) -> (true|nil, err)`
-  - `_raw.store.cache_set(key, value, ttl_s) -> (true|nil, err)`
-  - `_raw.store.cache_get(key) -> (value|nil, err)`
+  - `sys.store.put(type, key, value, opts?) -> (true|nil, err)`
+  - `sys.store.get(type, key) -> (value|nil, err)`
+  - `sys.store.delete(type, key) -> (deleted|nil, err)`
+  - `sys.store.keys(type) -> (keys|nil, err)`
+  - `sys.store.len(type) -> (count|nil, err)`
+  - `sys.store.clear(type) -> (true|nil, err)`
+  - `sys.store.cache_set(key, value, ttl_s) -> (true|nil, err)`
+  - `sys.store.cache_get(key) -> (value|nil, err)`
   - Note: High-level `store.save_snippet(...)` is also available globally for user convenience
 - Secrets (raw):
-  - `_raw.secrets.env(name) -> (SecretRef|nil, err)`
-  - `_raw.secrets.command(spec) -> (SecretRef|nil, err)`
+  - `sys.secrets.env(name) -> (SecretRef|nil, err)`
+  - `sys.secrets.command(spec) -> (SecretRef|nil, err)`
     - `spec`: `{ tool:string, args:string[]?, timeout:number(seconds)?, ttl_s:number? }`
 - Auth (raw):
-  - `_raw.auth.basic(user_ref, pass_ref) -> (AuthRef|nil, err)`
-  - `_raw.auth.bearer(token_ref) -> (AuthRef|nil, err)`
+  - `sys.auth.basic(user_ref, pass_ref) -> (AuthRef|nil, err)`
+  - `sys.auth.bearer(token_ref) -> (AuthRef|nil, err)`
 - Tasks (raw):
-  - `_raw.task.status(task_id) -> (status|nil, err)`
-  - `_raw.task.result(task_id) -> (result|nil, err)`
-  - `_raw.task.cancel(task_id) -> (success:boolean, err|nil)`
-  - `_raw.task.wait(task_id, timeout_ms?) -> (result|nil, err)`
+  - `sys.task.status(task_id) -> (status|nil, err)`
+  - `sys.task.result(task_id) -> (result|nil, err)`
+  - `sys.task.cancel(task_id) -> (success:boolean, err|nil)`
+  - `sys.task.wait(task_id, timeout_ms?) -> (result|nil, err)`
 - Ingest (core/internal):
-  - `_raw.ingest.get(token) -> (text|nil, err)`
+  - `sys.ingest.get(token) -> (text|nil, err)`
   - Used by the core `ingest.get(token)` wrapper to read UTF-8 text previously uploaded into the current MCP session via `munray-mcp ingest`.
   - Not intended as a general service-pack transport primitive.
 - Test helper (test/validation only):
-  - `_raw.test.start_task(delay_ms, result) -> (task_id|nil, err)`
+  - `sys.test.start_task(delay_ms, result) -> (task_id|nil, err)`
 
 ### 7.0.1 Blob handles (binary-safe)
 
-The core also exposes **opaque blob handles** for binary data capture. Blob bytes are never surfaced to Lua as strings; they can only be written to VFS via `_raw.vfs.write_blob`.
+The core also exposes **opaque blob handles** for binary data capture. Blob bytes are never surfaced to Lua as strings; they can only be written to VFS via `sys.vfs.write_blob`.
 
-- `_raw.blob.from_cli(tool, args, opts?) -> (blob|nil, err)`
+- `sys.blob.from_cli(tool, args, opts?) -> (blob|nil, err)`
   - Captures **stdout bytes** from a CLI invocation.
   - `opts`: `{ timeout?: number(seconds), cwd?: string, max_bytes?: number }` (default `max_bytes` is 200MB).
-- `_raw.blob.from_http(method, base_url, path, opts?) -> (blob|nil, err)`
+- `sys.blob.from_http(method, base_url, path, opts?) -> (blob|nil, err)`
   - Captures **response body bytes** from an HTTP request.
   - `opts`: `{ query?:table, headers?:table, auth?:AuthRef, max_bytes?: number, timeout?: number(seconds) }`
   - Note: this does **not** JSON-decode.
-- `_raw.blob.len(blob) -> (n|nil, err)`
+- `sys.blob.len(blob) -> (n|nil, err)`
 
 ### 7.0.2 Virtual filesystem (VFS)
 
-VFS is scratch-only storage backed by OS temp dir, scoped **per Lua runtime** (for MCP this typically means per live session). Raw VFS primitives are internal-only like the rest of `_raw.*`; mutating policy still comes from the enclosing schema-backed public wrapper.
+VFS is scratch-only storage backed by OS temp dir, scoped **per Lua runtime** (for MCP this typically means per live session). Raw VFS primitives are internal-only like the rest of `sys.*`; guarded policy still comes from the enclosing schema-backed public wrapper.
 
 Raw primitives:
 
-- `_raw.vfs.mkdirp(path) -> (true|nil, err)`
-- `_raw.vfs.write_text(path, text, opts?) -> (info|nil, err)`
+- `sys.vfs.mkdirp(path) -> (true|nil, err)`
+- `sys.vfs.write_text(path, text, opts?) -> (info|nil, err)`
   - `opts`: `{ overwrite?: boolean }` (default true)
-- `_raw.vfs.write_blob(path, blob, opts?) -> (info|nil, err)`
+- `sys.vfs.write_blob(path, blob, opts?) -> (info|nil, err)`
   - `opts`: `{ overwrite?: boolean }` (default true)
-- `_raw.vfs.read_text(path, opts?) -> (text|nil, err)`
+- `sys.vfs.read_text(path, opts?) -> (text|nil, err)`
   - Text-only, with a hard max regardless of caller opts.
   - `opts`: `{ max_bytes?: number, offset?: number }`
-- `_raw.vfs.stat(path) -> (info|nil, err)`
-- `_raw.vfs.list(path, opts?) -> (entries|nil, err)`
+- `sys.vfs.stat(path) -> (info|nil, err)`
+- `sys.vfs.list(path, opts?) -> (entries|nil, err)`
   - `opts`: `{ recursive?: boolean, max_entries?: number }`
-- `_raw.vfs.to_text(path, opts?) -> (result|nil, err)`
+- `sys.vfs.to_text(path, opts?) -> (result|nil, err)`
   - Zip-first converter for artifact inspection. Extracts to an `extracted/...` dir and returns a manifest + text previews.
-- `_raw.vfs.expose(paths) -> (result|nil, err)`
+- `sys.vfs.expose(paths) -> (result|nil, err)`
   - Create a fresh OS temp directory for exposed host copies, copy one or more VFS files into it, and return host paths for the copied files.
   - Files only; directories are rejected. Any missing/invalid file fails the whole call. Basename collisions are auto-renamed within the exposure bundle.
 
@@ -475,11 +475,11 @@ Convenience wrappers (core preload):
 - `vfs.to_txt(path, opts?)`
 - `vfs.expose(paths)`
 
-Service packs should generally prefer stable core primitives when available (for example `_raw.secrets.*`, `_raw.auth.*`, and `async_task.status`/`async_task.result`/`async_task.wait`).
+Service packs should generally prefer stable core primitives when available (for example `sys.secrets.*`, `sys.auth.*`, and `async_task.status`/`async_task.result`/`async_task.wait`).
 
 ### 7.1 CLI-based Packs
 
-Use `_raw.cli.text`, `_raw.cli.json`, `_raw.cli.start_text`, and `_raw.cli.start_json` for safe CLI execution.
+Use `sys.cli.text`, `sys.cli.json`, `sys.cli.start_text`, and `sys.cli.start_json` for safe CLI execution.
 
 Guidelines:
 
@@ -490,41 +490,41 @@ Guidelines:
 
 Synchronous execution uses:
 
-- `_raw.cli.json(tool, args, opts?) -> (value, err?)`
-- `_raw.cli.text(tool, args, opts?) -> (text, err?)`
+- `sys.cli.json(tool, args, opts?) -> (value, err?)`
+- `sys.cli.text(tool, args, opts?) -> (text, err?)`
 
-Delayed execution (task-based async) uses the `_raw.cli.start_*` variants:
+Delayed execution (task-based async) uses the `sys.cli.start_*` variants:
 
-- `_raw.cli.start_json(tool, args, opts?) -> task_id`
-- `_raw.cli.start_text(tool, args, opts?) -> task_id`
+- `sys.cli.start_json(tool, args, opts?) -> task_id`
+- `sys.cli.start_text(tool, args, opts?) -> task_id`
 
 ### 7.2 HTTP-based Packs
 
-Use `_raw.http.request`, `_raw.http.list`, and `_raw.http.start_request`.
+Use `sys.http.request`, `sys.http.list`, and `sys.http.start_request`.
 
 Guidelines:
 
 - prefer returning decoded tables and structured errors
-- use `_raw.secrets.*` and `_raw.auth.*` for credentials (do not read env vars directly)
+- use `sys.secrets.*` and `sys.auth.*` for credentials (do not read env vars directly)
 
 Synchronous execution uses:
 
-- `_raw.http.request(method, base_url, path, opts?) -> (resp, err?)`
+- `sys.http.request(method, base_url, path, opts?) -> (resp, err?)`
 
 Delayed execution (task-based async) uses:
 
-- `_raw.http.start_request(method, base_url, path, opts?) -> task_id`
+- `sys.http.start_request(method, base_url, path, opts?) -> task_id`
 
 ### 7.3 GraphQL-based Packs
 
-Use `_raw.graphql.request`, `_raw.graphql.list`, and `_raw.graphql.start_request` when the upstream API is GraphQL-shaped rather than REST-shaped.
+Use `sys.graphql.request`, `sys.graphql.list`, and `sys.graphql.start_request` when the upstream API is GraphQL-shaped rather than REST-shaped.
 
 Guidelines:
 
-- treat `_raw.graphql.*` as a service-implementation primitive, not a user-facing API contract
-- prefer `_raw.graphql.request` for one-shot queries and `_raw.graphql.list` for connection/offset pagination
+- treat `sys.graphql.*` as a service-implementation primitive, not a user-facing API contract
+- prefer `sys.graphql.request` for one-shot queries and `sys.graphql.list` for connection/offset pagination
 - use ordered header lists when the upstream API requires duplicate header names
-- public wrappers around GraphQL mutations must still set `__schema.functions[].mutating = true`; do not add Lua-side `_raw.exec_mode()` checks or extra raw-layer mutation markers
+- public wrappers around GraphQL mutations must still set `__schema.functions[].readonly = false`; do not add Lua-side `sys.exec_mode()` checks or extra raw-layer mutation markers
 
 ---
 
@@ -539,7 +539,7 @@ If your API uses numeric pages:
 
 ### 8.2 Token Pagination (Cursor-based)
 
-If your API uses opaque next-page tokens, prefer `_raw.http.list` when available.
+If your API uses opaque next-page tokens, prefer `sys.http.list` when available.
 
 General pattern:
 
@@ -547,7 +547,7 @@ General pattern:
 function myservice.resource.list(opts)
   opts = opts or {}
 
-  return _raw.http.list("GET", base_url, "/v1/resources", {
+  return sys.http.list("GET", base_url, "/v1/resources", {
     auth = auth,
     query = { filter = opts.filter },
     pagination = {
@@ -566,7 +566,7 @@ end
 If the API may return a successful empty response **without** the collection field (for example no `items` / `timeSeries` key at all), opt in explicitly:
 
 ```lua
-return _raw.http.list("GET", base_url, "/v1/resources", {
+return sys.http.list("GET", base_url, "/v1/resources", {
   pagination = {
     kind = "token",
     items_path = "items",
@@ -607,35 +607,35 @@ For iterator failures, it’s acceptable to throw (error) when the next page fet
 
 Use the core raw secret/auth primitives for credentials.
 
-- Secret sources live under `_raw.secrets.*`
-- Auth constructors live under `_raw.auth.*`
+- Secret sources live under `sys.secrets.*`
+- Auth constructors live under `sys.auth.*`
 - Both return opaque references that are only resolved during transport calls in Go
 
 Examples:
 
 ```lua
-local token = _raw.secrets.env("MY_TOKEN")
-local auth = _raw.auth.bearer(token)
+local token = sys.secrets.env("MY_TOKEN")
+local auth = sys.auth.bearer(token)
 
-local resp, err = _raw.http.request("GET", base_url, path, { auth = auth })
+local resp, err = sys.http.request("GET", base_url, path, { auth = auth })
 ```
 
 Command-backed short-lived token example:
 
 ```lua
-local token = _raw.secrets.command({
+local token = sys.secrets.command({
   tool = "gcloud",
   args = {"auth", "print-access-token"},
   ttl_s = 3600,
 })
-local auth = _raw.auth.bearer(token)
+local auth = sys.auth.bearer(token)
 ```
 
 Rules:
 
 - never print secrets
 - never return raw credentials in tables
-- prefer passing opaque auth refs to `_raw.http.request`, `_raw.http.list`, and `_raw.http.start_request`
+- prefer passing opaque auth refs to `sys.http.request`, `sys.http.list`, and `sys.http.start_request`
 
 ---
 
@@ -696,5 +696,5 @@ Update this file whenever:
 
 - the expected service pack directory layout changes
 - schema conventions change
-- security/mutating enforcement rules change
+- security/guarded enforcement rules change
 - new pagination or transport primitives are added

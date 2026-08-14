@@ -1,10 +1,10 @@
 -- gcloud.monitoring.* implementation
 -- Read Cloud Monitoring metrics via Monitoring REST API and alert resources via gcloud CLI.
 
-local raw_cli_json = _raw.cli.json
-local raw_http_list = _raw.http.list
-local raw_secrets_command = _raw.secrets.command
-local raw_auth_bearer = _raw.auth.bearer
+local raw_cli_json = sys.cli.json
+local raw_http_list = sys.http.list
+local raw_secrets_command = sys.secrets.command
+local raw_auth_bearer = sys.auth.bearer
 
 local MONITORING_BASE_URL = "https://monitoring.googleapis.com"
 local GCLOUD_TOKEN_TTL_SECONDS = 3600
@@ -568,7 +568,7 @@ gcloud.monitoring.alert.__schema = {
 			path = "gcloud.monitoring.alert.list",
 			signature = "(project, opts?)",
 			description = "List Cloud Monitoring alerts via gcloud alpha monitoring alerts list.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.iter",
 			yields = "Alert",
 			params = {
@@ -594,7 +594,7 @@ return alerts
 			path = "gcloud.monitoring.alert.describe",
 			signature = "(alert, opts?)",
 			description = "Describe a Cloud Monitoring alert via gcloud alpha monitoring alerts describe. Accepts a fully qualified alert resource name, or a short alert ID when opts.project is provided.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.result",
 			params = {
 				{ name = "alert", type = "string", optional = false, description = "Alert ID or fully qualified alert resource name" },
@@ -633,7 +633,7 @@ gcloud.monitoring.policy.__schema = {
 			path = "gcloud.monitoring.policy.list",
 			signature = "(project, opts?)",
 			description = "List Cloud Monitoring alerting policies via gcloud alpha monitoring policies list.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.iter",
 			yields = "AlertPolicy",
 			params = {
@@ -659,7 +659,7 @@ return policies
 			path = "gcloud.monitoring.policy.describe",
 			signature = "(policy, opts?)",
 			description = "Describe a Cloud Monitoring alerting policy via gcloud alpha monitoring policies describe. Accepts a fully qualified policy resource name, or a short policy ID when opts.project is provided.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.result",
 			params = {
 				{ name = "policy", type = "string", optional = false, description = "Policy ID or fully qualified policy resource name" },
@@ -698,7 +698,7 @@ gcloud.monitoring.descriptor.__schema = {
 			path = "gcloud.monitoring.descriptor.list",
 			signature = "(project, opts?)",
 			description = "List Cloud Monitoring metric descriptors using the Monitoring REST API and gcloud-generated bearer auth.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.iter",
 			yields = "MetricDescriptor",
 			params = {
@@ -742,7 +742,7 @@ gcloud.monitoring.series.__schema = {
 			path = "gcloud.monitoring.series.list",
 			signature = "(project, opts)",
 			description = "List Cloud Monitoring time series using the Monitoring REST API and gcloud-generated bearer auth. Empty API responses without a timeSeries field are treated as successful empty result sets.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.iter",
 			yields = "TimeSeries",
 			params = {

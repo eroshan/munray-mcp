@@ -18,10 +18,10 @@ for _, fn in ipairs(schema.functions) do
 	seen[fn.name] = true
 	if fn.name == "searchComponents" or fn.name == "componentLogs" then
 		test.assert_eq(fn.returns_contract, "core.iter", fn.name .. " should be an iterator contract")
-		test.assert_eq(fn.mutating, false, fn.name .. " should not be mutating")
+		test.assert_eq(fn.readonly, true, fn.name .. " should not be guarded")
 	else
 		test.assert_eq(fn.returns_contract, "core.result", fn.name .. " should be a result contract")
-		test.assert_eq(fn.mutating, false, fn.name .. " should not be mutating")
+		test.assert_eq(fn.readonly, true, fn.name .. " should not be guarded")
 	end
 end
 

@@ -30,7 +30,7 @@ pub struct Stats {
     pub executions: usize,
     pub errors: usize,
     pub readonly: usize,
-    pub mutating: usize,
+    pub guarded: usize,
     pub sessions: usize,
     pub total_duration_ms: u128,
     pub average_duration_ms: f64,
@@ -103,9 +103,9 @@ pub fn read_stats(directory: &Path) -> Result<Stats> {
         .iter()
         .filter(|entry| entry.mode == "readonly")
         .count();
-    let mutating = entries
+    let guarded = entries
         .iter()
-        .filter(|entry| entry.mode == "mutating")
+        .filter(|entry| entry.mode == "guarded")
         .count();
     let sessions = entries
         .iter()
@@ -118,7 +118,7 @@ pub fn read_stats(directory: &Path) -> Result<Stats> {
         executions: entries.len(),
         errors,
         readonly,
-        mutating,
+        guarded,
         sessions,
         total_duration_ms,
         average_duration_ms: if entries.is_empty() {

@@ -15,7 +15,7 @@ The server executes Lua locally and exposes the runtime through MCP over stdio. 
 - loading filesystem-based Lua service packs;
 - maintaining a Lua runtime per MCP session;
 - exposing schema-backed Lua APIs and capability discovery;
-- distinguishing read-only and mutating MCP calls;
+- distinguishing read-only and guarded MCP calls;
 - providing CLI, HTTP, GraphQL, task, namespaced KV, snippets, VFS, blob, secret, and ingest facilities; and
 - capturing execution output, metrics, and optional execution logging.
 
@@ -31,10 +31,10 @@ The current implementation has two materially different code classes:
 | Embedded core Lua | Trusted. Loaded from the binary with `include_str!`. |
 | Filesystem service packs | **Fully trusted host code.** They execute in the trusted Lua global environment. The VM is created with mlua's safe standard libraries, so native/C module loading is unavailable. |
 | Persisted Lua snippets | Trusted after human-approved installation. They compile and execute in the trusted Lua global environment. |
-| MCP session scripts | Untrusted. Each execution uses a separate allowlisted Lua `_ENV` containing pure-Lua helpers and cloned public API tables only; it has no `_raw`, `io`, `os`, `debug`, `package`, `require`, `dofile`, `loadfile`, or `load`. |
+| MCP session scripts | Untrusted. Each execution uses a separate allowlisted Lua `_ENV` containing pure-Lua helpers and cloned public API tables only; it has no `sys`, `io`, `os`, `debug`, `package`, `require`, `dofile`, `loadfile`, or `load`. |
 | CLI user scripts | Local trusted code. Direct raw access remains enabled. |
 
-This distinction is important: service packs can use host-facing Lua facilities independently of `_raw.*`, so the CLI allowlist and VFS do not sandbox a malicious service pack.
+This distinction is important: service packs can use host-facing Lua facilities independently of `sys.*`, so the CLI allowlist and VFS do not sandbox a malicious service pack.
 
 ## 2. Process topology and thread model
 
@@ -56,7 +56,7 @@ rmcp server + command routing (`main.rs`, `mcp.rs`)
                                       |
                             schema-backed functions
                                       |
-                              guarded `_raw.*`
+                              guarded `sys.*`
                                       |
        +---------------+--------------+-------------+---------------+
        |               |                            |               |
@@ -81,15 +81,15 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 
 | Command | Current behavior |
 | --- | --- |
-| default / `run [file]` | Execute stdin or a file in a new runtime, in mutating mode. There is no interactive REPL. |
+| default / `run [file]` | Execute stdin or a file in a new runtime, in guarded mode. There is no interactive REPL. |
 | `mcp` | Serve MCP over stdin/stdout and, on Unix, start the local ingest socket. |
 | `validate` | Construct a runtime to catch load failures, then count files named `init.lua`. It does **not** force capability/schema validation. |
 | `test` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. |
 | `ingest` | Send UTF-8 stdin to an already-created MCP session through its Unix socket. |
-| `list-raw` | Construct a runtime and enumerate registered `_raw.*` functions. |
+| `list-sys` | Construct a runtime and enumerate registered `sys.*` functions. |
 | `stats` | Combine available schema paths with metrics found in the durable store. |
 
-CLI execution permits direct `_raw.*` calls and uses mutating mode. Service tests permit direct raw calls, retain the full standard library, and initially use read-only mode.
+CLI execution permits direct `sys.*` calls and uses guarded mode. Service tests permit direct raw calls, retain the full standard library, and initially use read-only mode.
 
 ### 3.2 Path resolution
 
@@ -158,7 +158,7 @@ The modular preload files are the sole Lua bootstrap implementation. Their expli
 
 ### 6.1 Direct-raw and standard-library modes
 
-| Runtime constructor/use | Direct `_raw.*` | User-visible standard library |
+| Runtime constructor/use | Direct `sys.*` | User-visible standard library |
 | --- | --- | --- |
 | MCP session (`new_mcp`) | Guarded | Partially restricted |
 | CLI (`new_persistent`) | Allowed | Partially restricted |
@@ -209,8 +209,8 @@ It exposes two tools:
 
 | Tool | Execution mode |
 | --- | --- |
-| `lua_runLuaScript` | `ReadOnly` |
-| `lua_runMutatingLuaScript` | `Mutating` |
+| `runLuaScript` | `ReadOnly` |
+| `runGuardedLuaScript` | `Guarded` |
 
 Both accept:
 
@@ -237,9 +237,9 @@ Independent sessions can execute concurrently. Same-session calls are intended t
 
 This orders increasing numeric request IDs, which is not necessarily the same as wire-arrival order. Runtime-creation errors can also leave pending arrival state behind because cleanup is not RAII-based.
 
-### 8.4 Mutating elicitation
+### 8.4 Guarded elicitation
 
-If the client advertises form elicitation, the mutating tool requests an `Approve`/`Reject` decision before execution. Decline, cancel, or any accepted value other than `Approve` returns a `MUTATING_REJECTED` payload and does not execute code.
+If the client advertises form elicitation, the guarded tool requests an `Approve`/`Reject` decision before execution. Decline, cancel, or any accepted value other than `Approve` returns a `REJECTED_BY_GUARD` payload and does not execute code.
 
 Current fallback is permissive:
 
@@ -297,13 +297,13 @@ Return conversion rules are:
 
 ### 10.1 Schema mutation gate
 
-After trusted loading, Rust walks schema namespace tables and records immutable operation metadata in a per-runtime registry. It replaces each matching public function with a Rust closure that captures the original Lua function, mutation policy, return contract, and operation path. It rejects captured mutating functions in read-only mode and wraps iterators so each step has the same authorization.
+After trusted loading, Rust walks schema namespace tables and records immutable operation metadata in a per-runtime registry. It replaces each matching public function with a Rust closure that captures the original Lua function, mutation policy, return contract, and operation path. It rejects captured guarded functions in read-only mode and wraps iterators so each step has the same authorization.
 
 Mutation policy is never read from mutable Lua descriptors at call time. Session code receives cloned public tables, so descriptor/function reassignment cannot alter trusted globals or registry entries. Human-approved `snippets.save` and `snippets.delete` update the Rust registry and refresh those public clones immediately.
 
 ### 10.2 Raw guard
 
-Every raw Rust callback is replaced with a Rust guard closure. The guard consults Rust-owned bootstrap/direct-access/depth state and returns `(nil, RAW_OUTSIDE_SCHEMA)` unless direct raw access is enabled or an RAII scope from a registered public wrapper is active. Iterator steps enter a separate Rust scope. Session environments do not expose `_raw` at all.
+Every raw Rust callback is replaced with a Rust guard closure. The guard consults Rust-owned bootstrap/direct-access/depth state and returns `(nil, RAW_OUTSIDE_SCHEMA)` unless direct raw access is enabled or an RAII scope from a registered public wrapper is active. Iterator steps enter a separate Rust scope. Session environments do not expose `sys` at all.
 
 There is no Lua wrapper installer or Lua raw-context counter.
 
@@ -311,7 +311,7 @@ There is no Lua wrapper installer or Lua raw-context counter.
 
 Non-test VMs use mlua's safe standard-library constructor, which prevents native/C module loading. MCP session chunks execute with a separate allowlisted `_ENV`; it contains pure Lua primitives and cloned public API tables, but not host-facing standard libraries, raw globals, package loading, or `load`/file loaders. Trusted core/service/snippet code remains in the trusted global environment.
 
-This is a Lua-language boundary, not OS process isolation. Trusted service packs and approved snippets intentionally retain the safe VM's host-facing Lua facilities; architectural security must not treat them as contained to `_raw.*` or the VFS.
+This is a Lua-language boundary, not OS process isolation. Trusted service packs and approved snippets intentionally retain the safe VM's host-facing Lua facilities; architectural security must not treat them as contained to `sys.*` or the VFS.
 
 ### 10.4 CLI allowlist
 
@@ -328,20 +328,20 @@ The raw CLI and command-secret implementations require exact command-name member
 
 | Namespace | Implemented operations |
 | --- | --- |
-| `_raw` | `exec_mode` |
-| `_raw.auth` | `basic`, `bearer` |
-| `_raw.blob` | `from_cli`, `from_http`, `len` |
-| `_raw.cli` | `text`, `json`, `start_text`, `start_json` |
-| `_raw.graphql` | `request`, `list`, `start_request` |
-| `_raw.http` | `request`, `list`, `start_request` |
-| `_raw.ingest` | `get` |
-| `_raw.secrets` | `env`, `command` |
-| `_raw.kv` | `put`, `get`, `delete`, `keys`, `len`, `clear` |
-| `_raw.snippets` | `save`, `get`, `list`, `delete` |
-| `_raw.task` | `status`, `result`, `wait`, `cancel` |
-| `_raw.test` | `set_mode`, `start_task` |
-| `_raw.url` | query/path escape and unescape |
-| `_raw.vfs` | `mkdirp`, text/blob write, text read, `stat`, `list`, `to_text`, `expose` |
+| `sys` | `exec_mode` |
+| `sys.auth` | `basic`, `bearer` |
+| `sys.blob` | `from_cli`, `from_http`, `len` |
+| `sys.cli` | `text`, `json`, `start_text`, `start_json` |
+| `sys.graphql` | `request`, `list`, `start_request` |
+| `sys.http` | `request`, `list`, `start_request` |
+| `sys.ingest` | `get` |
+| `sys.secrets` | `env`, `command` |
+| `sys.kv` | `put`, `get`, `delete`, `keys`, `len`, `clear` |
+| `sys.snippets` | `save`, `get`, `list`, `delete` |
+| `sys.task` | `status`, `result`, `wait`, `cancel` |
+| `sys.test` | `set_mode`, `start_task` |
+| `sys.url` | query/path escape and unescape |
+| `sys.vfs` | `mkdirp`, text/blob write, text read, `stat`, `list`, `to_text`, `expose` |
 
 Public core namespaces include `json`, `yaml`, `helpers`, `store`, `async_task`, `vfs`, `ingest`, and `capabilities`. `errutil` is intentionally internal and has no schema.
 
@@ -401,7 +401,7 @@ The process-global command registry has no cleanup. It retains definitions after
 
 Each runtime owns a temporary VFS root. VFS paths must be non-empty, relative, free of parent/root/prefix components, and limited to ASCII alphanumerics plus `.`, `_`, `/`, and `-`.
 
-The VFS provides directory creation, text/blob writes, text reads, metadata, recursive/nonrecursive listing, ZIP extraction/previews, and exposure bundles. VFS writes are declared non-mutating by policy because they affect runtime-local scratch space; `vfs.expose` is mutating because it creates host-visible copies.
+The VFS provides directory creation, text/blob writes, text reads, metadata, recursive/nonrecursive listing, ZIP extraction/previews, and exposure bundles. VFS writes are declared non-guarded by policy because they affect runtime-local scratch space; `vfs.expose` is guarded because it creates host-visible copies.
 
 ZIP conversion shells out to `unzip` without the service CLI allowlist or execution deadline. It limits the number of files and preview bytes but not total extracted bytes, so archive expansion can consume substantial memory/disk. Exposure bundles remain alive until the runtime drops.
 
@@ -431,7 +431,7 @@ Generic KV rows retain JSON text, content type, timestamps, and an optional expi
 
 ### 12.2 Persisted snippets
 
-Complete snippet rows are restored during startup. The public `snippets.save` definition uses `namespace` and `name` (for example, `{namespace="math", name="fibonacci"}` installs `math.fibonacci`); the durable store uses an internal dotted identifier. Its `code` may be a function expression, a chunk that returns a function, or a named Lua function declaration. Function text is compiled in the global environment, namespaces are created dynamically, descriptors are attached, and security wrappers are reinstalled. Snippets default to `mutating=false` unless schema text says otherwise.
+Complete snippet rows are restored during startup. The public `snippets.save` definition uses `namespace` and `name` (for example, `{namespace="math", name="fibonacci"}` installs `math.fibonacci`); the durable store uses an internal dotted identifier. Its `code` may be a function expression, a chunk that returns a function, or a named Lua function declaration. Function text is compiled in the global environment, namespaces are created dynamically, descriptors are attached, and security wrappers are reinstalled. Snippets default to `readonly = true` unless schema text says otherwise.
 
 Installing/deleting a snippet changes only the current Lua runtime immediately. Deleting the final snippet from a snippet-created namespace prunes that empty namespace, so it is no longer discoverable. Other existing sessions share its durable records but do not install/remove the corresponding Lua function until they are recreated or explicitly updated themselves.
 

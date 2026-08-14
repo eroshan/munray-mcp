@@ -14,7 +14,7 @@ fn cli_blob_can_be_measured_and_written_to_vfs() {
     .unwrap();
     let runtime = LuaRuntime::new(Some(services.path())).unwrap();
     let result = runtime.execute(
-        "local blob, err = _raw.blob.from_cli('sh', {'-c', 'printf abc'}); if err then error(err.message) end; local size = _raw.blob.len(blob); local info, write_err = _raw.vfs.write_blob('blob.bin', blob); if write_err then error(write_err.message) end; local text = vfs.read_text('blob.bin'); return {size=size, text=text, label=tostring(blob)}",
+        "local blob, err = sys.blob.from_cli('sh', {'-c', 'printf abc'}); if err then error(err.message) end; local size = sys.blob.len(blob); local info, write_err = sys.vfs.write_blob('blob.bin', blob); if write_err then error(write_err.message) end; local text = vfs.read_text('blob.bin'); return {size=size, text=text, label=tostring(blob)}",
         ExecutionMode::ReadOnly,
         "<test>",
     ).unwrap();

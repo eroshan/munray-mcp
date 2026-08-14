@@ -37,23 +37,23 @@ local has_transition = false
 for _, func in ipairs(issue_schema.functions) do
 	if func.name == "get" then
 		has_get = true
-		test.assert_eq(func.mutating, false, "issue.get should not be mutating")
+		test.assert_eq(func.readonly, true, "issue.get should not be guarded")
 	end
 	if func.name == "find" then
 		has_find = true
-		test.assert_eq(func.mutating, false, "issue.find should not be mutating")
+		test.assert_eq(func.readonly, true, "issue.find should not be guarded")
 	end
 	if func.name == "create" then
 		has_create = true
-		test.assert_eq(func.mutating, true, "issue.create should be mutating")
+		test.assert_eq(func.readonly, false, "issue.create should be guarded")
 	end
 	if func.name == "update" then
 		has_update = true
-		test.assert_eq(func.mutating, true, "issue.update should be mutating")
+		test.assert_eq(func.readonly, false, "issue.update should be guarded")
 	end
 	if func.name == "transition" then
 		has_transition = true
-		test.assert_eq(func.mutating, true, "issue.transition should be mutating")
+		test.assert_eq(func.readonly, false, "issue.transition should be guarded")
 	end
 end
 
@@ -76,7 +76,7 @@ for _, func in ipairs(field_schema.functions) do
 	if func.name == "list" then
 		has_field_list = true
 		test.assert_eq(func.signature, "(opts)", "field.list signature should match")
-		test.assert_eq(func.mutating, false, "field.list should not be mutating")
+		test.assert_eq(func.readonly, true, "field.list should not be guarded")
 		test.assert_eq(func.returns_contract, "core.iter", "field.list should return an iterator")
 		test.assert_eq(func.yields, "Field", "field.list should yield Field values")
 	end
@@ -118,15 +118,15 @@ for _, func in ipairs(issue_schema.functions) do
 	if func.name == "subtasks" then
 		has_subtasks = true
 		test.assert_eq(func.signature, "(parent_key, opts)", "subtasks signature should match")
-		test.assert_eq(func.mutating, false, "subtasks should not be mutating")
+		test.assert_eq(func.readonly, true, "subtasks should not be guarded")
 	elseif func.name == "parent" then
 		has_parent = true
 		test.assert_eq(func.signature, "(child_key, opts)", "parent signature should match")
-		test.assert_eq(func.mutating, false, "parent should not be mutating")
+		test.assert_eq(func.readonly, true, "parent should not be guarded")
 	elseif func.name == "hierarchy" then
 		has_hierarchy = true
 		test.assert_eq(func.signature, "(issue_key, opts)", "hierarchy signature should match")
-		test.assert_eq(func.mutating, false, "hierarchy should not be mutating")
+		test.assert_eq(func.readonly, true, "hierarchy should not be guarded")
 	end
 end
 
@@ -190,17 +190,17 @@ test.describe("Jira Service - v2.0 API: Transition Function")
 -- Test transition function exists
 test.assert_eq(type(jira.issue.transition), "function", "jira.issue.transition should be a function")
 
--- In readonly service-pack tests, mutating functions are blocked by the core wrapper
+-- In readonly service-pack tests, guarded functions are blocked by the core wrapper
 -- before service-level input validation executes.
 result, err = jira.issue.transition(nil, "31")
 test.assert_eq(result, nil, "transition should return nil in readonly mode")
 test.assert_not_nil(err, "transition should return error in readonly mode")
-test.assert_eq(err.code, "MUTATING_BLOCKED", "transition should be blocked in readonly mode")
+test.assert_eq(err.code, "GUARDED_TOOL_REQUIRED", "transition should be blocked in readonly mode")
 
 result, err = jira.issue.transition("PROJ-123", nil)
 test.assert_eq(result, nil, "transition should return nil in readonly mode")
 test.assert_not_nil(err, "transition should return error in readonly mode")
-test.assert_eq(err.code, "MUTATING_BLOCKED", "transition should be blocked in readonly mode")
+test.assert_eq(err.code, "GUARDED_TOOL_REQUIRED", "transition should be blocked in readonly mode")
 
 test.describe("Jira Service - v2.0 API: Standardized Error Format")
 

@@ -17,17 +17,17 @@ fn help_lists_supported_commands() {
 }
 
 #[test]
-fn list_raw_enumerates_registered_primitives() {
+fn list_sys_enumerates_registered_primitives() {
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .arg("list-raw")
+        .arg("list-sys")
         .assert()
         .success()
-        .stdout(predicate::str::contains("_raw.http.request"))
-        .stdout(predicate::str::contains("_raw.http.start_request"))
-        .stdout(predicate::str::contains("_raw.graphql.start_request"))
-        .stdout(predicate::str::contains("_raw.kv.put"))
-        .stdout(predicate::str::contains("_raw.snippets.save"));
+        .stdout(predicate::str::contains("sys.http.request"))
+        .stdout(predicate::str::contains("sys.http.start_request"))
+        .stdout(predicate::str::contains("sys.graphql.start_request"))
+        .stdout(predicate::str::contains("sys.kv.put"))
+        .stdout(predicate::str::contains("sys.snippets.save"));
 }
 
 #[test]

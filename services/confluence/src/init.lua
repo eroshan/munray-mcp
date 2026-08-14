@@ -29,16 +29,16 @@ confluence.__schema = {
 				{ name = "result", type = "boolean", description = "True if Confluence is ready" },
 				{ name = "err", type = "core.error|nil", description = "Error if not ready or host probe failed" },
 			},
-			mutating = false,
+			readonly = true,
 		},
 	},
 	resources = { "confluence.page", "confluence.search" },
 }
 
 -- Capture raw primitives at load time to prevent runtime tampering
-local raw_http_request = _raw.http.request
-local raw_http_list = _raw.http.list
-local raw_url_query_escape = _raw.url.query_escape
+local raw_http_request = sys.http.request
+local raw_http_list = sys.http.list
+local raw_url_query_escape = sys.url.query_escape
 
 -- Internal: allow tests to stub transport without changing production call sites.
 -- Not part of the public service API.
@@ -175,9 +175,9 @@ function confluence._client.get_auth()
 	end
 
 	local cfg = confluence._client.get_config()
-	local email_ref = _raw.secrets.env(cfg.auth_email_env)
-	local token_ref = _raw.secrets.env(cfg.auth_token_env)
-	confluence._auth = _raw.auth.basic(email_ref, token_ref)
+	local email_ref = sys.secrets.env(cfg.auth_email_env)
+	local token_ref = sys.secrets.env(cfg.auth_token_env)
+	confluence._auth = sys.auth.basic(email_ref, token_ref)
 	return confluence._auth, nil
 end
 

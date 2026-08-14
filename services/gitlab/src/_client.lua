@@ -5,10 +5,10 @@
 local _client = {}
 
 -- Capture raw primitives at load time to prevent runtime tampering
-local raw_cli_json = _raw.cli.json
-local raw_cli_text = _raw.cli.text
-local raw_url_query_escape = _raw.url.query_escape
-local raw_url_path_escape = _raw.url.path_escape
+local raw_cli_json = sys.cli.json
+local raw_cli_text = sys.cli.text
+local raw_url_query_escape = sys.url.query_escape
+local raw_url_path_escape = sys.url.path_escape
 
 local get_errors = gitlab._get_errors
 

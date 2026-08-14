@@ -12,7 +12,7 @@ fn logged_cli_execution_is_written_to_owner_only_jsonl() {
 
     let stats = mcp_server::logging::read_stats(directory.path()).unwrap();
     assert_eq!(stats.executions, 1);
-    assert_eq!(stats.mutating, 1);
+    assert_eq!(stats.guarded, 1);
 
     #[cfg(unix)]
     {

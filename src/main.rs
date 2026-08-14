@@ -49,8 +49,8 @@ enum Command {
     },
     /// Run Lua tests found under service-pack tests directories.
     Test,
-    /// List raw primitives provided to service packs.
-    ListRaw,
+    /// List internal system primitives provided to service packs.
+    ListSys,
     /// Report wrapped public function availability and usage metrics.
     Stats {
         #[arg(long)]
@@ -105,10 +105,10 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Some(Command::Test) => run_service_tests(cli.svc_dir),
-        Some(Command::ListRaw) => {
+        Some(Command::ListSys) => {
             let runtime = LuaRuntime::new(None)?;
-            println!("Available _raw.* primitives:");
-            for (namespace, functions) in runtime.list_raw_primitives()? {
+            println!("Available sys.* primitives:");
+            for (namespace, functions) in runtime.list_sys_primitives()? {
                 println!("\n{namespace}:");
                 for function in functions {
                     println!("  {namespace}.{function}");
@@ -189,14 +189,14 @@ fn execute(
     let started = std::time::Instant::now();
     let execution = runtime.execute(
         &code,
-        ExecutionMode::Mutating,
+        ExecutionMode::Guarded,
         file.as_ref().map_or("<stdin>", |_| "<file>"),
     )?;
     if let Some(logs_dir) = logs_dir {
         mcp_server::logging::Logger::new(&logs_dir)?.log(mcp_server::logging::ExecutionEntry {
             timestamp_ms: mcp_server::logging::now_ms(),
             session_id: "cli".into(),
-            mode: "mutating".into(),
+            mode: "guarded".into(),
             code,
             output: execution.output.clone(),
             result: execution.result.clone(),

@@ -46,17 +46,17 @@ fn mcp_initializes_lists_tools_and_reuses_session_state() {
     let listed = request(json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}));
     assert_eq!(listed["result"]["tools"].as_array().unwrap().len(), 2);
     request(
-        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":"answer = 41; return answer","session_id":"same"}}}),
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"answer = 41; return answer","session_id":"same"}}}),
     );
     let response = request(
-        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":"answer = answer + 1; return answer","session_id":"same"}}}),
+        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"answer = answer + 1; return answer","session_id":"same"}}}),
     );
     let payload: Value =
         serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(payload["session_id"], "same");
     assert_eq!(payload["result"], 42);
     let context_response = request(
-        json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":"return capabilities.ai_context().runtime.server_id","session_id":"same"}}}),
+        json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return capabilities.ai_context().runtime.server_id","session_id":"same"}}}),
     );
     let context_payload: Value = serde_json::from_str(
         context_response["result"]["content"][0]["text"]
@@ -73,7 +73,7 @@ fn mcp_initializes_lists_tools_and_reuses_session_state() {
 }
 
 #[test]
-fn mutating_tool_requires_elicitation_before_execution_and_honors_the_decision() {
+fn guarded_tool_requires_elicitation_before_execution_and_honors_the_decision() {
     let mut child = ProcessCommand::new(cargo_bin(env!("CARGO_PKG_NAME")))
         .arg("mcp")
         .stdin(Stdio::piped())
@@ -99,8 +99,8 @@ fn mutating_tool_requires_elicitation_before_execution_and_honors_the_decision()
         .write_all(
             line(json!({
                 "jsonrpc":"2.0", "id":2, "method":"tools/call",
-                "params":{"name":"lua_runMutatingLuaScript","arguments":{
-                    "code":"_G.mutating_test_value = 42; return true",
+                "params":{"name":"runGuardedLuaScript","arguments":{
+                    "code":"_G.guarded_test_value = 42; return true",
                     "session_id":"elicitation-test"
                 }}
             }))
@@ -120,7 +120,7 @@ fn mutating_tool_requires_elicitation_before_execution_and_honors_the_decision()
         elicitation["params"]["message"]
             .as_str()
             .unwrap()
-            .contains("mutating_test_value")
+            .contains("guarded_test_value")
     );
     stdin
         .write_all(
@@ -139,15 +139,15 @@ fn mutating_tool_requires_elicitation_before_execution_and_honors_the_decision()
     let rejected: Value = serde_json::from_str(&rejected_line).unwrap();
     let payload: Value =
         serde_json::from_str(rejected["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
-    assert_eq!(payload["error"]["code"], "MUTATING_REJECTED");
+    assert_eq!(payload["error"]["code"], "REJECTED_BY_GUARD");
 
     let read = exchange(
         &mut stdin,
         &mut stdout,
         json!({
             "jsonrpc":"2.0", "id":3, "method":"tools/call",
-            "params":{"name":"lua_runLuaScript","arguments":{
-                "code":"return _G.mutating_test_value",
+            "params":{"name":"runLuaScript","arguments":{
+                "code":"return _G.guarded_test_value",
                 "session_id":"elicitation-test"
             }}
         }),
@@ -160,8 +160,8 @@ fn mutating_tool_requires_elicitation_before_execution_and_honors_the_decision()
         .write_all(
             line(json!({
                 "jsonrpc":"2.0", "id":4, "method":"tools/call",
-                "params":{"name":"lua_runMutatingLuaScript","arguments":{
-                    "code":"_G.mutating_test_value = 42; return _G.mutating_test_value",
+                "params":{"name":"runGuardedLuaScript","arguments":{
+                    "code":"_G.guarded_test_value = 42; return _G.guarded_test_value",
                     "session_id":"elicitation-test"
                 }}
             }))
@@ -196,7 +196,7 @@ fn mutating_tool_requires_elicitation_before_execution_and_honors_the_decision()
 }
 
 #[test]
-fn mutating_tool_without_form_elicitation_capability_uses_source_fallback() {
+fn guarded_tool_without_form_elicitation_capability_uses_source_fallback() {
     let input = [
         line(json!({
             "jsonrpc":"2.0", "id":1, "method":"initialize",
@@ -208,7 +208,7 @@ fn mutating_tool_without_form_elicitation_capability_uses_source_fallback() {
         })),
         line(json!({
             "jsonrpc":"2.0", "id":2, "method":"tools/call",
-            "params":{"name":"lua_runMutatingLuaScript","arguments":{
+            "params":{"name":"runGuardedLuaScript","arguments":{
                 "code":"_G.fallback_mutation = 42; return _G.fallback_mutation",
                 "session_id":"fallback-test"
             }}
@@ -232,7 +232,7 @@ fn mcp_hides_raw_calls_from_session_code() {
         line(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})),
         line(json!({
             "jsonrpc":"2.0", "id":2, "method":"tools/call",
-            "params":{"name":"lua_runLuaScript","arguments":{"code":"return _raw == nil"}}
+            "params":{"name":"runLuaScript","arguments":{"code":"return sys == nil"}}
         })),
     ].concat();
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
@@ -250,7 +250,7 @@ fn schema_backed_core_function_can_enter_raw_context() {
         line(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})),
         line(json!({
             "jsonrpc":"2.0", "id":2, "method":"tools/call",
-            "params":{"name":"lua_runLuaScript","arguments":{"code":"local ok, err = vfs.write_text('proof.txt', 'ok'); if err then return err.code end; return ok"}}
+            "params":{"name":"runLuaScript","arguments":{"code":"local ok, err = vfs.write_text('proof.txt', 'ok'); if err then return err.code end; return ok"}}
         })),
     ]
     .concat();
@@ -269,7 +269,7 @@ fn mcp_preserves_printed_output_when_lua_fails() {
         line(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})),
         line(json!({
             "jsonrpc":"2.0", "id":2, "method":"tools/call",
-            "params":{"name":"lua_runLuaScript","arguments":{"code":"print('before failure'); error('boom')","session_id":"failure-output"}}
+            "params":{"name":"runLuaScript","arguments":{"code":"print('before failure'); error('boom')","session_id":"failure-output"}}
         })),
     ]
     .concat();
@@ -291,10 +291,10 @@ fn independent_sessions_overlap_and_reused_session_is_fifo() {
     fs::write(
         src.join("init.lua"),
         r#"
-local raw_text = _raw.cli.text
+local raw_text = sys.cli.text
 demo = {
   __allowed_cli_commands = {"sh"},
-  __schema = {namespace="demo",service="demo",functions={{name="pause",mutating=false,returns_contract="core.result"}}}
+  __schema = {namespace="demo",service="demo",functions={{name="pause",readonly=true,returns_contract="core.result"}}}
 }
 function demo.pause()
   local _, err = raw_text("sh", {"-c", "sleep 0.25"})
@@ -322,8 +322,8 @@ end
     stdin
         .write_all(
             [
-                line(json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":"return demo.pause()","session_id":"parallel-a"}}})),
-                line(json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":"return demo.pause()","session_id":"parallel-b"}}})),
+                line(json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return demo.pause()","session_id":"parallel-a"}}})),
+                line(json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return demo.pause()","session_id":"parallel-b"}}})),
             ]
             .concat()
             .as_bytes(),
@@ -339,8 +339,8 @@ end
     stdin
         .write_all(
             [
-                line(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":"demo.pause(); ordered = 42; return ordered","session_id":"fifo"}}})),
-                line(json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":"return ordered","session_id":"fifo"}}})),
+                line(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"demo.pause(); ordered = 42; return ordered","session_id":"fifo"}}})),
+                line(json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return ordered","session_id":"fifo"}}})),
             ]
             .concat()
             .as_bytes(),
@@ -383,7 +383,7 @@ fn cli_ingest_targets_an_existing_mcp_session() {
     exchange(
         &mut stdin,
         &mut stdout,
-        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":"return true","session_id":"ingest-session"}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return true","session_id":"ingest-session"}}}),
     );
 
     let output = Command::cargo_bin(env!("CARGO_PKG_NAME"))
@@ -410,7 +410,7 @@ fn cli_ingest_targets_an_existing_mcp_session() {
     let response = exchange(
         &mut stdin,
         &mut stdout,
-        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"lua_runLuaScript","arguments":{"code":format!("return ingest.get('{token}')"),"session_id":"ingest-session"}}}),
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":format!("return ingest.get('{token}')"),"session_id":"ingest-session"}}}),
     );
     let payload: Value =
         serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();

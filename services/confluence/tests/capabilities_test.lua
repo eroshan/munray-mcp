@@ -40,27 +40,27 @@ local has_update = false
 for _, func in ipairs(page_schema.functions) do
 	if func.name == "get" then
 		has_get = true
-		test.assert_eq(func.mutating, false, "page.get should not be mutating")
+		test.assert_eq(func.readonly, true, "page.get should not be guarded")
 	end
 	if func.name == "content" then
 		has_content = true
-		test.assert_eq(func.mutating, false, "page.content should not be mutating")
+		test.assert_eq(func.readonly, true, "page.content should not be guarded")
 	end
 	if func.name == "find" then
 		has_find = true
-		test.assert_eq(func.mutating, false, "page.find should not be mutating")
+		test.assert_eq(func.readonly, true, "page.find should not be guarded")
 	end
 	if func.name == "list" then
 		has_list = true
-		test.assert_eq(func.mutating, false, "page.list should not be mutating")
+		test.assert_eq(func.readonly, true, "page.list should not be guarded")
 	end
 	if func.name == "create" then
 		has_create = true
-		test.assert_eq(func.mutating, true, "page.create should be mutating")
+		test.assert_eq(func.readonly, false, "page.create should be guarded")
 	end
 	if func.name == "update" then
 		has_update = true
-		test.assert_eq(func.mutating, true, "page.update should be mutating")
+		test.assert_eq(func.readonly, false, "page.update should be guarded")
 	end
 end
 

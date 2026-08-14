@@ -4,8 +4,8 @@
 
 local original_request_impl = confluence._client._request_impl
 
-local _, mode_err = _raw.test.set_mode("mutating")
-test.assert_nil(mode_err, "_raw.test.set_mode should enable mutating mode for confluence page modification tests")
+local _, mode_err = sys.test.set_mode("guarded")
+test.assert_nil(mode_err, "sys.test.set_mode should enable guarded mode for confluence page modification tests")
 
 confluence._config = {
 	base_url = "https://test.atlassian.net/wiki",

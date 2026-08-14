@@ -2,7 +2,7 @@
 -- luacheck: globals vfs
 -- User-facing VFS convenience namespace (vfs.*)
 
-if type(_raw) ~= "table" or type(_raw.vfs) ~= "table" then
+if type(sys) ~= "table" or type(sys.vfs) ~= "table" then
 	return
 end
 
@@ -21,7 +21,7 @@ end
 vfs.__schema = {
 	namespace = "vfs",
 	service = "core",
-	description = "Virtual filesystem (VFS) for scratch storage. Backed by opaque OS temp directories, runtime-local, sandboxed. VFS reads/writes are non-mutating by policy; expose is mutating because it creates host-visible copies.",
+	description = "Virtual filesystem (VFS) for scratch storage. Backed by opaque OS temp directories, runtime-local, sandboxed. VFS reads/writes are non-guarded by policy; expose is guarded because it creates host-visible copies.",
 	usage_hint = "Sandboxed runtime-local VFS, not host filesystem. Paths are VFS-relative; use vfs.expose() for host-visible temp copies.",
 	types = {
 		FileInfo = { shape = "{path:string, size:number, is_dir:boolean}" },
@@ -35,7 +35,7 @@ vfs.__schema = {
 			path = "vfs.mkdirp",
 			signature = "(path)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Create directory and all parents in VFS",
 			params = { { name = "path", type = "string" } },
 			returns_typed = { { name = "result", type = "boolean" }, { name = "err", type = "core.error|nil" } },
@@ -45,7 +45,7 @@ vfs.__schema = {
 			path = "vfs.ensure_parent",
 			signature = "(path)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Ensure the parent directory of a file path exists",
 			params = { { name = "path", type = "string" } },
 			returns_typed = { { name = "result", type = "boolean" }, { name = "err", type = "core.error|nil" } },
@@ -55,7 +55,7 @@ vfs.__schema = {
 			path = "vfs.write_text",
 			signature = "(path, text, opts?)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Write text content to a VFS file. Options: overwrite (default true)",
 			params = {
 				{ name = "path", type = "string" },
@@ -75,7 +75,7 @@ print("Wrote", info.size, "bytes to", info.path)
 			path = "vfs.read_text",
 			signature = "(path, opts?)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Read text content from a VFS file. Options: max_bytes, offset",
 			params = {
 				{ name = "path", type = "string" },
@@ -88,7 +88,7 @@ print("Wrote", info.size, "bytes to", info.path)
 			path = "vfs.ls",
 			signature = "(path, opts?)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "List VFS directory entries. Options: recursive, max_entries",
 			params = {
 				{ name = "path", type = "string" },
@@ -101,7 +101,7 @@ print("Wrote", info.size, "bytes to", info.path)
 			path = "vfs.stat",
 			signature = "(path)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Get file/directory info from VFS",
 			params = { { name = "path", type = "string" } },
 			returns_typed = { { name = "info", type = "FileInfo" }, { name = "err", type = "core.error|nil" } },
@@ -111,14 +111,14 @@ print("Wrote", info.size, "bytes to", info.path)
 			path = "vfs.expose",
 			signature = "(paths)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Copy one or more VFS files into a fresh OS temp exposure bundle and return host-visible paths for agent inspection. Input must be an array of VFS file paths.",
 			params = {
 				{ name = "paths", type = "table", optional = false, description = "Array of VFS file paths to expose" },
 			},
 			returns_typed = { { name = "result", type = "ExposeResult" }, { name = "err", type = "core.error|nil" } },
 			examples = [[
--- Expose a downloaded GitLab artifact archive for agent inspection (requires mutating mode)
+-- Expose a downloaded GitLab artifact archive for agent inspection (requires guarded mode)
 local res, err = gitlab.job.artifact_download(repo, job_id, { file = "artifacts/job.zip" })
 if err then error(err.message) end
 
@@ -132,7 +132,7 @@ print("Exposed:", exposed.files[1].host_path)
 			path = "vfs.to_txt",
 			signature = "(path, opts?)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Convert a binary file to text representation (zip extraction + previews). Returns summary, file list, and text previews.",
 			params = {
 				{ name = "path", type = "string" },
@@ -159,7 +159,7 @@ end
 
 -- vfs.mkdirp(path) -> (true|nil, err)
 function vfs.mkdirp(path)
-	return _raw.vfs.mkdirp(path)
+	return sys.vfs.mkdirp(path)
 end
 
 -- vfs.ensure_parent(path) -> (true|nil, err)
@@ -171,27 +171,27 @@ function vfs.ensure_parent(path)
 		-- No parent directory (file is at root level)
 		return true, nil
 	end
-	return _raw.vfs.mkdirp(parent)
+	return sys.vfs.mkdirp(parent)
 end
 
 -- vfs.write_text(path, text, opts?) -> (info|nil, err)
 function vfs.write_text(path, text, opts)
-	return _raw.vfs.write_text(path, text, opts)
+	return sys.vfs.write_text(path, text, opts)
 end
 
 -- vfs.read_text(path, opts?) -> (text|nil, err)
 function vfs.read_text(path, opts)
-	return _raw.vfs.read_text(path, opts)
+	return sys.vfs.read_text(path, opts)
 end
 
 -- vfs.ls(path, opts?) -> (entries|nil, err)
 function vfs.ls(path, opts)
-	return _raw.vfs.list(path, opts)
+	return sys.vfs.list(path, opts)
 end
 
 -- vfs.stat(path) -> (info|nil, err)
 function vfs.stat(path)
-	return _raw.vfs.stat(path)
+	return sys.vfs.stat(path)
 end
 
 -- vfs.expose(paths) -> (result|nil, err)
@@ -199,10 +199,10 @@ function vfs.expose(paths)
 	if type(paths) ~= "table" then
 		return nil, vfs_validation_err("vfs.expose requires an array of VFS file paths", { paths_type = type(paths) })
 	end
-	return _raw.vfs.expose(paths)
+	return sys.vfs.expose(paths)
 end
 
 -- vfs.to_txt(path, opts?) -> (result|nil, err)
 function vfs.to_txt(path, opts)
-	return _raw.vfs.to_text(path, opts)
+	return sys.vfs.to_text(path, opts)
 end

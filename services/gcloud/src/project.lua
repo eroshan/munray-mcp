@@ -140,11 +140,11 @@ local function project_list(opts)
 
 	local cache_key = cache_key_for_project_list()
 	if not force_gcp then
-		local cached, cache_err = _raw.kv.get(STORE_TYPE, cache_key)
+		local cached, cache_err = sys.kv.get(STORE_TYPE, cache_key)
 		if cache_err then
 			return nil, {
 				code = "STORE_ERROR",
-				message = "_raw.kv.get failed: " .. (cache_err.message or tostring(cache_err)),
+				message = "sys.kv.get failed: " .. (cache_err.message or tostring(cache_err)),
 				context = { key = cache_key },
 				recoverable = true,
 			}
@@ -160,18 +160,18 @@ local function project_list(opts)
 	-- Add --format=json for structured output
 	table.insert(args, "--format=json")
 
-	-- Execute via _raw.cli.json primitive
-	local result, cli_err = _raw.cli.json("gcloud", args)
+	-- Execute via sys.cli.json primitive
+	local result, cli_err = sys.cli.json("gcloud", args)
 	if cli_err then
 		return wrap_project_cli_error(cli_err, args)
 	end
 
 	-- Persist result into store (never expires). This is best-effort: in readonly
-	-- execution mode, _raw.kv.put will be blocked, but we still return the live result.
-	local _, put_err = _raw.kv.put(STORE_TYPE, cache_key, result)
+	-- execution mode, sys.kv.put will be blocked, but we still return the live result.
+	local _, put_err = sys.kv.put(STORE_TYPE, cache_key, result)
 	if put_err then
 		-- Non-fatal: caller still gets the live result.
-		-- (If executed in mutating mode, this will succeed.)
+		-- (If executed in guarded mode, this will succeed.)
 	end
 
 	-- Return array of projects
@@ -190,7 +190,7 @@ gcloud.project.__schema = {
 			signature = "([opts])",
 			returns_contract = "core.result",
 			description = "List GCP projects from the cached full project list by default. Set force_gcp_read = true to rescan GCP and refresh the cache; project_pattern applies local Lua-pattern matching to the cached results.",
-			mutating = false,
+			readonly = true,
 			params = {
 				{
 					name = "opts",

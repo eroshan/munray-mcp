@@ -19,7 +19,7 @@ jira.project.__schema = {
                 { name = "result", type = "Project", description = "Project object" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            mutating = false
+            readonly = true
         },
         {
             name = "list",
@@ -34,7 +34,7 @@ jira.project.__schema = {
             returns_typed = {
                 { name = "iterator", type = "Iterator", description = "Iterator yielding Project objects" }
             },
-            mutating = false
+            readonly = true
         }
     },
 	types = {

@@ -38,7 +38,7 @@ local log, log_err = gitlab.job.log(repo, job_id)
 if log_err then error(log_err) end
 print("Log length:", #log)
 
--- Retry job (requires mutating mode)
+-- Retry job (requires guarded mode)
 local ok, retry_err = gitlab.job.retry(repo, job_id)
 if retry_err then error(retry_err) end
 print("Retried:", ok)
@@ -49,7 +49,7 @@ local artifacts, artifacts_err = gitlab.job.artifact_download(repo, job_id, { fi
 if artifacts_err then error(artifacts_err) end
 print("Artifacts archive (VFS):", artifacts.file, "bytes:", artifacts.bytes)
 
--- Expose the archive as a host-readable temp file (requires mutating mode)
+-- Expose the archive as a host-readable temp file (requires guarded mode)
 local exposed, expose_err = vfs.expose({artifacts.file})
 if expose_err then error(expose_err) end
 print("Artifacts archive (host):", exposed.files[1].host_path)

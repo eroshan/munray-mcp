@@ -50,7 +50,7 @@ local urgent_titles, urgent_err = helpers.collect(gitlab.mr.list(repo, { state =
 if urgent_err then error(urgent_err) end
 print("Urgent MRs:", table.concat(urgent_titles, ", "))
 
--- Create MR (requires mutating mode, reuses session vars)
+-- Create MR (requires guarded mode, reuses session vars)
 local created_mr, create_err = gitlab.mr.create(repo, {
     source_branch = "feature-x",
     target_branch = "main",
@@ -61,7 +61,7 @@ local created_mr, create_err = gitlab.mr.create(repo, {
 if create_err then error(create_err) end
 print("Created:", created_mr.web_url)
 
--- Update MR (requires mutating mode)
+-- Update MR (requires guarded mode)
 local updated_mr, update_err = gitlab.mr.update(repo, mr_iid, {
     title = "Updated title",
     labels = {"bug", "urgent"}
@@ -69,12 +69,12 @@ local updated_mr, update_err = gitlab.mr.update(repo, mr_iid, {
 if update_err then error(update_err) end
 print("Updated:", updated_mr.web_url)
 
--- Approve MR (requires mutating mode)
+-- Approve MR (requires guarded mode)
 local approved_mr, approve_err = gitlab.mr.approve(repo, mr_iid)
 if approve_err then error(approve_err) end
 print("Approved:", approved_mr.web_url)
 
--- Merge MR (requires mutating mode)
+-- Merge MR (requires guarded mode)
 local merged_mr, merge_err = gitlab.mr.merge(repo, mr_iid, {
     delete_source_branch = true,
     squash = true,
@@ -83,12 +83,12 @@ local merged_mr, merge_err = gitlab.mr.merge(repo, mr_iid, {
 if merge_err then error(merge_err) end
 print("Merged:", merged_mr.web_url)
 
--- Close MR (requires mutating mode)
+-- Close MR (requires guarded mode)
 local closed_mr, close_err = gitlab.mr.close(repo, 456)
 if close_err then error(close_err) end
 print("Closed:", closed_mr.web_url)
 
--- Reopen MR (requires mutating mode)
+-- Reopen MR (requires guarded mode)
 local reopened_mr, reopen_err = gitlab.mr.reopen(repo, 456)
 if reopen_err then error(reopen_err) end
 print("Reopened:", reopened_mr.web_url)
@@ -125,7 +125,7 @@ end
 -- gitlab.mr.discussion_create posts a comment attached to a specific file line.
 -- It internally uses `glab api --input <json_file>` because -F/-f with bracket
 -- notation produces a non-positioned DiscussionNote (the position silently fails
--- to attach). Requires mutating mode.
+-- to attach). Requires guarded mode.
 
 -- 1. Get the diff_refs triple (base_sha/start_sha/head_sha) for the MR.
 local refs, refs_err = gitlab.mr.diff_refs(repo, mr_iid)

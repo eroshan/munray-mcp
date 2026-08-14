@@ -57,7 +57,7 @@ else
   end
 end
 
--- Example 5: Delete a branch (mutating operation)
+-- Example 5: Delete a branch (guarded operation)
 print("\n=== Example 5: Delete a branch ===")
 local _success, delete_err = gitlab.branch.delete(repo, "feature/old-branch")
 if delete_err then

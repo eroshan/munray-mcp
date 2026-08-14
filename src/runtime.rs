@@ -13,7 +13,7 @@ struct RawAuthorization {
 
 #[derive(Clone)]
 struct RegisteredFunction {
-    mutating: bool,
+    guarded: bool,
     iterator: bool,
     operation: String,
 }
@@ -21,14 +21,14 @@ struct RegisteredFunction {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionMode {
     ReadOnly,
-    Mutating,
+    Guarded,
 }
 
 impl ExecutionMode {
     fn as_str(self) -> &'static str {
         match self {
             Self::ReadOnly => "readonly",
-            Self::Mutating => "mutating",
+            Self::Guarded => "guarded",
         }
     }
 }
@@ -199,7 +199,7 @@ impl LuaRuntime {
                 table.set(
                     *function,
                     unavailable(Box::leak(
-                        format!("_raw.{namespace}.{function}").into_boxed_str(),
+                        format!("sys.{namespace}.{function}").into_boxed_str(),
                     ))?,
                 )?;
             }
@@ -263,8 +263,8 @@ impl LuaRuntime {
         test_api.set(
             "set_mode",
             self.lua.create_function(move |_, value: String| {
-                *mode.lock() = if value == "mutating" {
-                    ExecutionMode::Mutating
+                *mode.lock() = if value == "guarded" {
+                    ExecutionMode::Guarded
                 } else {
                     ExecutionMode::ReadOnly
                 };
@@ -304,7 +304,7 @@ impl LuaRuntime {
         )?;
         crate::tasks::register(&self.lua, &raw_table, Arc::clone(&self.allowed_cli), tasks)?;
         crate::vfs::register(&self.lua, &raw_table, vfs, exposures, blobs)?;
-        globals.set("_raw", raw)?;
+        globals.set("sys", raw)?;
         self.install_raw_guards()?;
 
         let json_api = self.lua.create_table()?;
@@ -410,8 +410,8 @@ impl LuaRuntime {
     }
 
     fn install_raw_guards(&self) -> Result<()> {
-        let raw: mlua::Table = self.lua.globals().get("_raw")?;
-        self.wrap_raw_table(raw, "_raw")
+        let raw: mlua::Table = self.lua.globals().get("sys")?;
+        self.wrap_raw_table(raw, "sys")
     }
 
     fn wrap_raw_table(&self, table: mlua::Table, prefix: &str) -> Result<()> {
@@ -516,13 +516,14 @@ impl LuaRuntime {
                 let Ok(original) = namespace.get::<mlua::Function>(name.as_str()) else {
                     continue;
                 };
-                let mutating = descriptor.get::<Option<bool>>("mutating")?.unwrap_or(false);
+                let readonly = descriptor.get::<Option<bool>>("readonly")?.unwrap_or(true);
+                let guarded = !readonly;
                 let iterator = descriptor
                     .get::<Option<String>>("returns_contract")?
                     .as_deref()
                     == Some("core.iter");
                 let registered = RegisteredFunction {
-                    mutating,
+                    guarded,
                     iterator,
                     operation: operation.clone(),
                 };
@@ -533,8 +534,8 @@ impl LuaRuntime {
                 let operation_for_call = operation.clone();
                 let original_for_call = original.clone();
                 let wrapper = lua.create_function(move |lua, args: MultiValue| {
-                    if registered_for_call.mutating
-                        && *mode_for_call.lock() != ExecutionMode::Mutating
+                    if registered_for_call.guarded
+                        && *mode_for_call.lock() != ExecutionMode::Guarded
                     {
                         let _ = store_for_call
                             .increment_function_metric(&operation_for_call, "blocked");
@@ -746,8 +747,8 @@ impl LuaRuntime {
         })
     }
 
-    pub fn list_raw_primitives(&self) -> Result<Vec<(String, Vec<String>)>> {
-        let raw: mlua::Table = self.lua.globals().get("_raw")?;
+    pub fn list_sys_primitives(&self) -> Result<Vec<(String, Vec<String>)>> {
+        let raw: mlua::Table = self.lua.globals().get("sys")?;
         let mut namespaces = Vec::new();
         let mut root_functions = Vec::new();
         for pair in raw.pairs::<String, Value>() {
@@ -764,7 +765,7 @@ impl LuaRuntime {
                     }
                     if !functions.is_empty() {
                         functions.sort();
-                        namespaces.push((format!("_raw.{name}"), functions));
+                        namespaces.push((format!("sys.{name}"), functions));
                     }
                 }
                 _ => {}
@@ -772,7 +773,7 @@ impl LuaRuntime {
         }
         if !root_functions.is_empty() {
             root_functions.sort();
-            namespaces.push(("_raw".to_owned(), root_functions));
+            namespaces.push(("sys".to_owned(), root_functions));
         }
         namespaces.sort_by(|left, right| left.0.cmp(&right.0));
         Ok(namespaces)
@@ -871,8 +872,8 @@ impl Drop for RawScope {
 
 fn mutation_blocked(lua: &Lua, operation: &str) -> mlua::Result<MultiValue> {
     let error = lua.create_table()?;
-    error.set("code", "MUTATING_BLOCKED")?;
-    error.set("message", "Mutating operation blocked in read-only mode")?;
+    error.set("code", "GUARDED_TOOL_REQUIRED")?;
+    error.set("message", "Guarded operation blocked in read-only mode")?;
     error.set("recoverable", false)?;
     let context = lua.create_table()?;
     context.set("operation", operation)?;

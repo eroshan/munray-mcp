@@ -1,5 +1,5 @@
 -- Jira client initialization (Lua-first implementation)
--- All API logic lives in Lua, using _raw.http.request for transport
+-- All API logic lives in Lua, using sys.http.request for transport
 
 jira = {
     issue = {},
@@ -31,7 +31,7 @@ jira.__schema = {
                 { name = "result", type = "boolean", description = "True if Jira is ready" },
                 { name = "err", type = "core.error|nil", description = "Error if not ready or auth failed" }
             },
-            mutating = false
+            readonly = true
         }
     },
     resources = { "jira.issue", "jira.project", "jira.field" }
@@ -75,9 +75,9 @@ function jira._client.get_auth()
         }
     end
 
-    local email_ref = _raw.secrets.env("JIRA_EMAIL")
-    local token_ref = _raw.secrets.env("JIRA_API_TOKEN")
-    jira._auth = _raw.auth.basic(email_ref, token_ref)
+    local email_ref = sys.secrets.env("JIRA_EMAIL")
+    local token_ref = sys.secrets.env("JIRA_API_TOKEN")
+    jira._auth = sys.auth.basic(email_ref, token_ref)
 
     return jira._auth
 end
@@ -141,7 +141,7 @@ function jira._client.request(method, path, opts)
         }
     }
 
-    return _raw.http.request(method, cfg.base_url, path, full_opts)
+    return sys.http.request(method, cfg.base_url, path, full_opts)
 end
 
 -- Internal: Make paginated list request using offset-based pagination
@@ -158,7 +158,7 @@ function jira._client.list(path, opts)
 
     local cfg = jira._client.get_config()
 
-    return _raw.http.list("GET", cfg.base_url, path, {
+    return sys.http.list("GET", cfg.base_url, path, {
         auth = auth,
         query = opts.query,
         headers = {

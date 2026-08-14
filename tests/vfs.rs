@@ -22,7 +22,7 @@ fn vfs_rejects_path_traversal() {
 }
 
 #[test]
-fn vfs_expose_requires_mutating_mode() {
+fn vfs_expose_requires_guarded_mode() {
     let runtime = LuaRuntime::new(None).unwrap();
     runtime
         .execute(
@@ -38,5 +38,5 @@ fn vfs_expose_requires_mutating_mode() {
             "<test>",
         )
         .unwrap();
-    assert_eq!(result.result, "MUTATING_BLOCKED");
+    assert_eq!(result.result, "GUARDED_TOOL_REQUIRED");
 }

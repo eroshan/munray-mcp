@@ -48,8 +48,8 @@ defaults to `$HOME/.local/share/munray-mcp`. `--store-path` (or
 function usage metrics are restored on startup; cache entries intentionally
 remain process-local.
 
-The MCP tools are `lua_runLuaScript` (read-only) and
-`lua_runMutatingLuaScript` (mutating). Supplying the same `session_id` keeps
+The MCP tools are `runLuaScript` (read-only) and
+`runGuardedLuaScript` (guarded). Supplying the same `session_id` keeps
 Lua globals alive across calls.
 Idle sessions are evicted after 30 minutes; independent sessions execute in
 parallel while calls reusing one session are processed FIFO.
@@ -94,7 +94,7 @@ it defaults to `$HOME/.local/share/munray-mcp`.
 
 Use the Rust binary name `munray-mcp`, rename host environment variables to the
 `MUNRAY_MCP_*` forms above, and point `--svc-dir` at this repository’s `services/`
-directory. MCP clients should call `lua_runLuaScript` and
-`lua_runMutatingLuaScript`. Existing service Lua APIs and test behavior remain
+directory. MCP clients should call `runLuaScript` and
+`runGuardedLuaScript`. Existing service Lua APIs and test behavior remain
 the same; no interactive REPL is provided, so pipe Lua to `munray-mcp` or use the
 `run` subcommand.

@@ -5,7 +5,7 @@ fn kv_supports_namespaced_crud_and_sorted_keys() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime.execute(
         "kv.put('note','b',{value=2}); kv.put('note','a',{value=1}); local keys=kv.keys('note'); local value=kv.get('note','a'); return {keys=keys,value=value.value,count=kv.len('note')}",
-        ExecutionMode::Mutating,
+        ExecutionMode::Guarded,
         "<test>",
     ).unwrap();
     assert_eq!(result.result["keys"], serde_json::json!(["a", "b"]));

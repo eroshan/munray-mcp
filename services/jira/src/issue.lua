@@ -19,7 +19,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Issue object" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            mutating = false
+            readonly = true
         },
         {
             name = "list",
@@ -35,7 +35,7 @@ jira.issue.__schema = {
             returns_typed = {
                 { name = "iterator", type = "Iterator", description = "Iterator yielding Issue objects" }
             },
-            mutating = false
+            readonly = true
         },
         {
             name = "find",
@@ -51,7 +51,7 @@ jira.issue.__schema = {
             returns_typed = {
                 { name = "iterator", type = "Iterator", description = "Iterator yielding Issue objects" }
             },
-            mutating = false
+            readonly = true
         },
         {
             name = "create",
@@ -66,7 +66,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Created issue" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            mutating = true
+            readonly = false
         },
         {
             name = "update",
@@ -83,7 +83,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Updated issue (refreshed)" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            mutating = true
+            readonly = false
         },
         {
             name = "transition",
@@ -100,7 +100,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Transitioned issue (refreshed)" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            mutating = true
+            readonly = false
         },
         {
             name = "subtasks",
@@ -116,7 +116,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue[]", description = "Array of subtask issue objects" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            mutating = false
+            readonly = true
         },
         {
             name = "parent",
@@ -132,7 +132,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Parent issue object" },
                 { name = "err", type = "core.error|nil", description = "Error if failed (including if issue has no parent)" }
             },
-            mutating = false
+            readonly = true
         },
         {
             name = "hierarchy",
@@ -148,7 +148,7 @@ jira.issue.__schema = {
                 { name = "result", type = "IssueHierarchy", description = "Hierarchy structure with issue, parent, children, ancestors, descendants" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            mutating = false
+            readonly = true
         }
     },
 	types = {
@@ -271,7 +271,7 @@ function jira.issue.find(query, opts)
         body.expand = opts.expand
     end
 
-    return _raw.http.list("POST", cfg.base_url, "/rest/api/3/search/jql", {
+    return sys.http.list("POST", cfg.base_url, "/rest/api/3/search/jql", {
         auth = auth,
         query = {},
         headers = {
@@ -362,7 +362,7 @@ function jira.issue._normalize_create_payload(data)
     return { fields = data }, nil
 end
 
--- Create issue (mutating)
+-- Create issue (guarded)
 -- data: either shorthand fields { project = { key = "PROJ" }, summary = "...", issuetype = { name = "Bug" }, ... }
 --       or a native Jira create payload { fields = {...}, update = {...}, properties = {...} }
 function jira.issue.create(data)
@@ -374,7 +374,7 @@ function jira.issue.create(data)
     return jira._client.request("POST", "/rest/api/3/issue", { body = body })
 end
 
--- Update issue (mutating)
+-- Update issue (guarded)
 -- data: Jira edit payload (fields/update/etc)
 -- opts: { notify_users, override_screen_security, override_editable_flag, fields, expand }
 --
@@ -434,7 +434,7 @@ function jira.issue.update(key, data, opts)
     return jira.issue.get(key, { fields = opts.fields, expand = opts.expand })
 end
 
--- Transition issue to a different workflow state (mutating)
+-- Transition issue to a different workflow state (guarded)
 -- opts: { comment, fields, resolution }
 function jira.issue.transition(key, transition_id, opts)
     -- Validate inputs first (before security check)

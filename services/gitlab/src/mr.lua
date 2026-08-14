@@ -18,7 +18,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.get",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Fetch a single merge request by IID",
 			params = { { name = "repo", type = "string|number" }, { name = "iid", type = "number" } },
 			returns_typed = { { name = "result", type = "MergeRequest" }, { name = "err", type = "core.error|nil" } },
@@ -29,7 +29,7 @@ gitlab.mr.__schema = {
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "MergeRequest",
-			mutating = false,
+			readonly = true,
 			description = "List merge requests for a repository (returns iterator; use helpers.collect() to materialize to array)",
 			params = { { name = "repo", type = "string|number" }, { name = "opts", type = "table", optional = true } },
 			returns_typed = { { name = "iterator", type = "Iterator" } },
@@ -39,7 +39,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.diff",
 			signature = "(repo, iid, opts)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "List per-file diffs for a merge request.",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -56,7 +56,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.create",
 			signature = "(repo, data)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Create a new merge request",
 			params = { { name = "repo", type = "string|number" }, { name = "data", type = "table" } },
 			returns_typed = { { name = "result", type = "MergeRequest" }, { name = "err", type = "core.error|nil" } },
@@ -66,7 +66,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.update",
 			signature = "(repo, iid, data, opts)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Update merge request fields by IID",
 			params = { { name = "repo", type = "string|number" }, { name = "iid", type = "number" }, { name = "data", type = "table" }, { name = "opts", type = "table", optional = true } },
 			returns_typed = { { name = "result", type = "MergeRequest" }, { name = "err", type = "core.error|nil" } },
@@ -76,7 +76,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.approve",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Approve a merge request by IID",
 			params = { { name = "repo", type = "string|number" }, { name = "iid", type = "number" } },
 			returns_typed = { { name = "result", type = "MergeRequest" }, { name = "err", type = "core.error|nil" } },
@@ -86,7 +86,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.merge",
 			signature = "(repo, iid, opts)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Merge a merge request by IID",
 			params = { { name = "repo", type = "string|number" }, { name = "iid", type = "number" }, { name = "opts", type = "table", optional = true } },
 			returns_typed = { { name = "result", type = "MergeRequest" }, { name = "err", type = "core.error|nil" } },
@@ -96,7 +96,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.close",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Close a merge request by IID",
 			params = { { name = "repo", type = "string|number" }, { name = "iid", type = "number" } },
 			returns_typed = { { name = "result", type = "MergeRequest" }, { name = "err", type = "core.error|nil" } },
@@ -106,7 +106,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.reopen",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Reopen a merge request by IID",
 			params = { { name = "repo", type = "string|number" }, { name = "iid", type = "number" } },
 			returns_typed = { { name = "result", type = "MergeRequest" }, { name = "err", type = "core.error|nil" } },
@@ -117,7 +117,7 @@ gitlab.mr.__schema = {
 			signature = "(repo, iid, opts)",
 			returns_contract = "core.iter",
 			yields = "Pipeline",
-			mutating = false,
+			readonly = true,
 			description = "List pipelines for a merge request's source branch (convenience wrapper for gitlab.pipeline.list)",
 			params = { { name = "repo", type = "string|number" }, { name = "iid", type = "number" }, { name = "opts", type = "table", optional = true } },
 			returns_typed = { { name = "iterator", type = "Iterator" } },
@@ -128,7 +128,7 @@ gitlab.mr.__schema = {
 			signature = "(repo, iid, opts)",
 			returns_contract = "core.iter",
 			yields = "Discussion",
-			mutating = false,
+			readonly = true,
 			description = "List all discussions (comments/review threads) for a merge request (returns iterator; use helpers.collect() to materialize to array)",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -142,7 +142,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.discussion",
 			signature = "(repo, iid, discussion_id)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Fetch a single discussion by ID",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -159,7 +159,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.discussion_create",
 			signature = "(repo, iid, body, position)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Create an inline code review comment (DiffNote) attached to a specific file line in a merge request. Use gitlab.mr.diff_refs() to get the required base_sha/start_sha/head_sha. position.old_path and position.new_path are both required and must match the file path before/after the change. For added/changed lines set position.new_line; for removed lines set position.old_line.",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -177,7 +177,7 @@ gitlab.mr.__schema = {
 			path = "gitlab.mr.diff_refs",
 			signature = "(repo, iid)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Convenience helper that returns the {base_sha, start_sha, head_sha} triple required to build a DiffPosition for gitlab.mr.discussion_create.",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -430,7 +430,7 @@ function gitlab.mr.discussion_create(repo, iid, body, position)
 	local payload_json = json.encode({ body = body, position = payload_position })
 
 	-- Resolve project id ourselves so we can build the API path explicitly
-	-- (the request goes through _raw.cli.json with custom flags, not request_json).
+	-- (the request goes through sys.cli.json with custom flags, not request_json).
 	local project_id, id_err = client.resolve_project_id(repo)
 	if id_err then return nil, id_err end
 
@@ -438,10 +438,10 @@ function gitlab.mr.discussion_create(repo, iid, body, position)
 	-- is the only form that preserves the nested `position` object; -F/-f flatten
 	-- it and the comment is attached as a plain DiscussionNote instead.
 	local vfs_path = string.format("gitlab/discussion_%s_%s_%d.json", tostring(project_id), tostring(iid), os.time())
-	local _, write_err = _raw.vfs.write_text(vfs_path, payload_json)
+	local _, write_err = sys.vfs.write_text(vfs_path, payload_json)
 	if write_err then return nil, write_err end
 
-	local exposed, expose_err = _raw.vfs.expose({ vfs_path })
+	local exposed, expose_err = sys.vfs.expose({ vfs_path })
 	if expose_err then return nil, expose_err end
 	if type(exposed) ~= "table" or type(exposed.files) ~= "table" or exposed.files[1] == nil then
 		return nil, { code = "VFS_EXPOSE_FAILED", message = "vfs.expose did not return a host path", recoverable = false }
@@ -456,7 +456,7 @@ function gitlab.mr.discussion_create(repo, iid, body, position)
 		"--input", host_path,
 	}
 
-	local result, cli_err = _raw.cli.json("glab", args, {})
+	local result, cli_err = sys.cli.json("glab", args, {})
 	if cli_err then return nil, cli_err end
 
 	-- Per the documented rule: verify the response is actually a DiffNote, not

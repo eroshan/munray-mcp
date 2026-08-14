@@ -65,7 +65,7 @@ if type(json) == "table" and json.__schema == nil then
 				path = "json.encode",
 				signature = "(value, [pretty])",
 				returns_contract = "core.result",
-				mutating = false,
+				readonly = true,
 				description = "Convert Lua value to JSON string",
 				params = { { name = "value", type = "any" }, { name = "pretty", type = "boolean", optional = true } },
 				returns_typed = { { name = "result", type = "string" }, { name = "err", type = "core.error|nil" } },
@@ -75,7 +75,7 @@ if type(json) == "table" and json.__schema == nil then
 				path = "json.decode",
 				signature = "(json_string)",
 				returns_contract = "core.result",
-				mutating = false,
+				readonly = true,
 				description = "Parse JSON string to Lua value",
 				params = { { name = "json_string", type = "string" } },
 				returns_typed = { { name = "result", type = "any" }, { name = "err", type = "core.error|nil" } },
@@ -95,7 +95,7 @@ if type(yaml_ns) == "table" and yaml_ns.__schema == nil then
 				path = "yaml.encode",
 				signature = "(value, [pretty])",
 				returns_contract = "core.result",
-				mutating = false,
+				readonly = true,
 				description = "Convert Lua value to YAML string",
 				params = { { name = "value", type = "any" }, { name = "pretty", type = "boolean", optional = true } },
 				returns_typed = { { name = "result", type = "string" }, { name = "err", type = "core.error|nil" } },
@@ -105,7 +105,7 @@ if type(yaml_ns) == "table" and yaml_ns.__schema == nil then
 				path = "yaml.decode",
 				signature = "(yaml_string)",
 				returns_contract = "core.result",
-				mutating = false,
+				readonly = true,
 				description = "Parse YAML string to Lua value",
 				params = { { name = "yaml_string", type = "string" } },
 				returns_typed = { { name = "result", type = "any" }, { name = "err", type = "core.error|nil" } },
@@ -187,7 +187,7 @@ local function validate_schema(s)
 			return false, "__schema.functions[" .. i .. "] must be a table"
 		end
 
-		local required = { "path", "name", "signature", "returns_contract", "description", "mutating", "returns_typed" }
+		local required = { "path", "name", "signature", "returns_contract", "description", "readonly", "returns_typed" }
 		for _, k in ipairs(required) do
 			if fn[k] == nil then
 				return false, "missing required field: functions[" .. i .. "]." .. k
@@ -212,8 +212,8 @@ local function validate_schema(s)
 		if type(fn.description) ~= "string" then
 			return false, "functions[" .. i .. "].description must be a string"
 		end
-		if type(fn.mutating) ~= "boolean" then
-			return false, "functions[" .. i .. "].mutating must be boolean"
+		if type(fn.readonly) ~= "boolean" then
+			return false, "functions[" .. i .. "].readonly must be boolean"
 		end
 
 		if fn.params ~= nil and type(fn.params) ~= "table" then
@@ -432,8 +432,8 @@ local function build_namespace_tree(value_builder, opts)
 			if node ~= nil then
 				for _, fn in ipairs(fns) do
 					local ok = true
-					if opts.mutating ~= nil then
-						ok = fn.mutating == opts.mutating
+					if opts.readonly ~= nil then
+						ok = fn.readonly == opts.readonly
 					end
 					if ok and opts.search then
 						local p = opts.search:lower()
@@ -504,7 +504,7 @@ function capabilities.ai_context(_)
 
 	local namespaces_table = build_namespace_tree(function(fn)
 		local summary = fn.signature
-		if fn.mutating then
+		if not fn.readonly then
 			summary = summary .. "*"
 		end
 		return summary .. " -> " .. return_summary(fn)
@@ -514,7 +514,7 @@ function capabilities.ai_context(_)
 		global = {
 			"Use capabilities.schema(target) for types/docs",
 			"Use capabilities.examples(target) for code",
-			"Ops ending with * are mutating; require mutating mode"
+			"Ops ending with * are guarded; require guarded mode"
 		}
 	}
 
@@ -588,7 +588,7 @@ function capabilities.schema(namespace)
 			signature = fn.signature,
 			returns_contract = fn.returns_contract,
 			description = fn.description,
-			mutating = fn.mutating,
+			readonly = fn.readonly,
 			params = fn.params,
 			returns_typed = fn.returns_typed or {},
 			yields = fn.yields,
@@ -617,7 +617,7 @@ function capabilities.schemas(opts)
 	return build_namespace_tree(function(fn)
 		return {
 			signature = fn.signature,
-			mutating = fn.mutating,
+			readonly = fn.readonly,
 			description = fn.description,
 			returns_contract = fn.returns_contract,
 			yields = fn.yields,

@@ -5,7 +5,7 @@ fn snippets_install_immediately_and_allow_definition_updates() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime.execute(
         "local ok, err=snippets.save({path='local_tools.math.double',code='function(x) return x*2 end'}); if err then error(err.message) end; local updated, update_err=snippets.save({path='local_tools.math.double',code='function() return 0 end'}); return {value=local_tools.math.double(6),updated=updated,error=update_err}",
-        ExecutionMode::Mutating,
+        ExecutionMode::Guarded,
         "<test>",
     ).unwrap();
     assert_eq!(result.result["value"], 0);
@@ -31,7 +31,7 @@ return {
   removed=after_delete.namespaces.local_tools == nil,
 }
 "#,
-            ExecutionMode::Mutating,
+            ExecutionMode::Guarded,
             "<test>",
         )
         .unwrap();
@@ -58,7 +58,7 @@ local value = math.fibonacci(10)
 assert(snippets.delete("math", "fibonacci"))
 return {value=value, namespace=definition.namespace, name=definition.name, path=definition.path, deleted=math.fibonacci == nil}
 "#,
-        ExecutionMode::Mutating,
+        ExecutionMode::Guarded,
         "<test>",
     ).unwrap();
     assert_eq!(result.result["value"], 55);
@@ -73,7 +73,7 @@ fn snippets_attach_schema_examples_and_can_be_recreated() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime.execute(
         r#"
-snippets.save({path='local_tools.echo',code='function(x) return x end',schema_expr='{name="echo",path="local_tools.echo",description="Echoes input",mutating=false,returns_contract="core.result"}',example='return local_tools.echo(1)'})
+snippets.save({path='local_tools.echo',code='function(x) return x end',schema_expr='{name="echo",path="local_tools.echo",description="Echoes input",readonly=true,returns_contract="core.result"}',example='return local_tools.echo(1)'})
 local schema=capabilities.schema('local_tools')
 local description, example=schema.functions[1].description,capabilities.examples('local_tools.echo')
 snippets.delete('local_tools.echo')
@@ -81,7 +81,7 @@ local absent=local_tools == nil or local_tools.echo == nil
 snippets.save({path='local_tools.echo',code='function() return 2 end'})
 return {description=description,example=example,absent=absent,value=local_tools.echo()}
 "#,
-        ExecutionMode::Mutating,
+        ExecutionMode::Guarded,
         "<test>",
     ).unwrap();
     assert_eq!(result.result["description"], "Echoes input");
@@ -95,19 +95,19 @@ fn dynamic_snippet_policy_is_captured_by_rust_wrapper() {
     let runtime = LuaRuntime::new(None).unwrap();
     runtime
         .execute(
-            "assert(snippets.save({path='local_tools.change',code='function() return true end',schema_expr='{mutating=true}'}))",
-            ExecutionMode::Mutating,
+            "assert(snippets.save({path='local_tools.change',code='function() return true end',schema_expr='{readonly=false}'}))",
+            ExecutionMode::Guarded,
             "<test>",
         )
         .unwrap();
     let result = runtime
         .execute(
-            "local_tools.__schema.functions[1].mutating=false; local value, err=local_tools.change(); return value == nil and err.code",
+            "local_tools.__schema.functions[1].readonly=true; local value, err=local_tools.change(); return value == nil and err.code",
             ExecutionMode::ReadOnly,
             "<test>",
         )
         .unwrap();
-    assert_eq!(result.result, "MUTATING_BLOCKED");
+    assert_eq!(result.result, "GUARDED_TOOL_REQUIRED");
 }
 
 #[test]
@@ -120,7 +120,7 @@ if err then error(err.message) end
 local schema=capabilities.schema("local_tools")
 return {value=local_tools.square(4),description=schema.functions[1].description,example=capabilities.examples("local_tools.square")}
 "#,
-        ExecutionMode::Mutating,
+        ExecutionMode::Guarded,
         "<test>",
     ).unwrap();
     assert_eq!(result.result["value"], 16);

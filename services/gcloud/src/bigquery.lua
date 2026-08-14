@@ -2,7 +2,7 @@
 -- Execute BigQuery SQL queries with billing protection and security controls
 
 -- Capture raw primitives as upvalues (security best practice)
-local raw_cli_json = _raw.cli.json
+local raw_cli_json = sys.cli.json
 
 local DEFAULT_MAX_BYTES_BILLED = 1073741824  -- 1 GB
 local DEFAULT_TIMEOUT_SECONDS = 300
@@ -571,7 +571,7 @@ local function bigquery_query(project, sql, opts)
 	-- Add query as the final positional argument
 	table.insert(args, sql)
 
-	-- 4. Execute via _raw.cli.json primitive
+	-- 4. Execute via sys.cli.json primitive
 	local timeout = opts.timeout or DEFAULT_TIMEOUT_SECONDS
 	local result, err = raw_cli_json("bq", args, { timeout = timeout })
 
@@ -740,7 +740,7 @@ gcloud.bigquery.__schema = {
 			signature = "(project, sql, [opts])",
 			returns_contract = "core.result",
 			description = "Execute BigQuery SQL query or validate with dry-run. Blocks mutations (INSERT/UPDATE/DELETE/etc). Default 1GB billing limit for safety. Returns up to 100 rows by default; set opts.max_rows to override.",
-			mutating = false,
+			readonly = true,
 			params = {
 				{
 					name = "project",
@@ -832,7 +832,7 @@ return rows
 			signature = "(project, table, [opts])",
 			returns_contract = "core.result",
 			description = "Show BigQuery table/view metadata. Returns table info by default; when opts.schema=true returns schema-only.",
-			mutating = false,
+			readonly = true,
 			params = {
 				{
 					name = "project",
@@ -900,7 +900,7 @@ return info
 			signature = "(project, table, [opts])",
 			returns_contract = "core.result",
 			description = "DEPRECATED: Use gcloud.bigquery.describe() instead. This is a backward compatibility alias.",
-			mutating = false,
+			readonly = true,
 			params = {
 				{
 					name = "project",

@@ -64,7 +64,7 @@ end
 
 function confluence.search.find(cql, opts)
 	if cql == nil or tostring(cql) == "" then
-		error(missing_required_field_err("cql", "search"))
+		return nil, missing_required_field_err("cql", "search")
 	end
 
 	opts = opts or {}
@@ -91,20 +91,20 @@ function confluence.search.find(cql, opts)
 		per_page = opts.per_page or 25,
 	})
 	if err then
-		error(err)
+		return nil, err
 	end
 
-	return iterator
+	return iterator, nil
 end
 
 function confluence.search.pages(query, opts)
 	if query == nil or tostring(query) == "" then
-		error(missing_required_field_err("query", "search"))
+		return nil, missing_required_field_err("query", "search")
 	end
 
 	local cql, err = build_page_search_cql(query)
 	if err then
-		error(err)
+		return nil, err
 	end
 
 	return confluence.search.find(cql, opts)
@@ -120,7 +120,7 @@ confluence.search.__schema = {
 			path = "confluence.search.find",
 			signature = "(cql, opts?)",
 			description = "Search Confluence with CQL. Returns a lazy iterator of search results.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.iter",
 			yields = "SearchResult",
 			params = {
@@ -146,7 +146,7 @@ return results
 			path = "confluence.search.pages",
 			signature = "(query, opts?)",
 			description = "Search Confluence pages by plain-text query. Builds page-scoped CQL and returns a lazy iterator of search results.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.iter",
 			yields = "SearchResult",
 			params = {

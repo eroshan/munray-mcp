@@ -18,7 +18,7 @@ fn zip_is_extracted_with_text_previews() {
     let cwd = fixture.path().to_string_lossy();
     let runtime = LuaRuntime::new(Some(services.path())).unwrap();
     let code = format!(
-        "local blob, err = _raw.blob.from_cli('zip', {{'-q','-','readme.txt','binary.bin'}}, {{cwd={cwd:?}}}); if err then error(err.message) end; _raw.vfs.write_blob('test.zip', blob); local result, text_err=vfs.to_txt('test.zip'); if text_err then error(text_err.message) end; return result"
+        "local blob, err = sys.blob.from_cli('zip', {{'-q','-','readme.txt','binary.bin'}}, {{cwd={cwd:?}}}); if err then error(err.message) end; sys.vfs.write_blob('test.zip', blob); local result, text_err=vfs.to_txt('test.zip'); if text_err then error(text_err.message) end; return result"
     );
     let result = runtime
         .execute(&code, ExecutionMode::ReadOnly, "<test>")

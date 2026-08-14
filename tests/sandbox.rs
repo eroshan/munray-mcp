@@ -22,7 +22,7 @@ fn mutable_schema_cannot_relax_registered_mutation_policy() {
         src.join("init.lua"),
         r#"
 demo = { __schema = { namespace="demo", service="demo", functions={
-  {name="change",mutating=true,returns_contract="core.result"},
+  {name="change",readonly=false,returns_contract="core.result"},
 } } }
 function demo.change() _G.changed = true; return true, nil end
 "#,
@@ -31,12 +31,12 @@ function demo.change() _G.changed = true; return true, nil end
     let runtime = LuaRuntime::new_session(Some(services.path())).unwrap();
     let result = runtime
         .execute(
-            "demo.__schema.functions[1].mutating=false; local value, err=demo.change(); return value == nil and err.code",
+            "demo.__schema.functions[1].readonly=true; local value, err=demo.change(); return value == nil and err.code",
             ExecutionMode::ReadOnly,
             "<test>",
         )
         .unwrap();
-    assert_eq!(result.result, "MUTATING_BLOCKED");
+    assert_eq!(result.result, "GUARDED_TOOL_REQUIRED");
 }
 
 #[test]
@@ -48,10 +48,10 @@ fn unqualified_schema_names_are_scoped_to_their_namespace() {
         src.join("init.lua"),
         r#"
 alpha = { __schema = { namespace="alpha", service="demo", functions={
-  {name="get",mutating=true,returns_contract="core.result"},
+  {name="get",readonly=false,returns_contract="core.result"},
 } } }
 beta = { __schema = { namespace="beta", service="demo", functions={
-  {name="get",mutating=true,returns_contract="core.result"},
+  {name="get",readonly=false,returns_contract="core.result"},
 } } }
 function alpha.get() return "alpha", nil end
 function beta.get() return "beta", nil end
@@ -66,8 +66,8 @@ function beta.get() return "beta", nil end
             "<test>",
         )
         .unwrap();
-    assert_eq!(result.result["a"], "MUTATING_BLOCKED");
-    assert_eq!(result.result["b"], "MUTATING_BLOCKED");
+    assert_eq!(result.result["a"], "GUARDED_TOOL_REQUIRED");
+    assert_eq!(result.result["b"], "GUARDED_TOOL_REQUIRED");
 }
 
 #[test]
@@ -79,8 +79,8 @@ fn duplicate_schema_paths_fail_runtime_construction() {
         src.join("init.lua"),
         r#"
 alpha = { __schema = { namespace="alpha", service="demo", functions={
-  {name="one",path="duplicate.path",mutating=false,returns_contract="core.result"},
-  {name="two",path="duplicate.path",mutating=false,returns_contract="core.result"},
+  {name="one",path="duplicate.path",readonly=true,returns_contract="core.result"},
+  {name="two",path="duplicate.path",readonly=true,returns_contract="core.result"},
 } } }
 function alpha.one() return true, nil end
 function alpha.two() return true, nil end
@@ -118,8 +118,8 @@ fn service_functions_and_iterator_steps_receive_full_stdlib() {
     fs::create_dir_all(&src).unwrap();
     fs::write(src.join("init.lua"), r#"
 demo = { __schema = { namespace="demo", service="demo", functions={
-  {name="env",returns_contract="core.result",mutating=false},
-  {name="items",returns_contract="core.iter",mutating=false},
+  {name="env",returns_contract="core.result",readonly=true},
+  {name="items",returns_contract="core.iter",readonly=true},
 } } }
 function demo.env() return os.getenv("PATH") ~= nil, nil end
 function demo.items() local done=false; return function() if done then return nil end; done=true; return os.getenv("PATH") ~= nil end end

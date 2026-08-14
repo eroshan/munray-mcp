@@ -1,4 +1,4 @@
--- Core-owned saved snippets. Persistence is provided by _raw.snippets; this
+-- Core-owned saved snippets. Persistence is provided by sys.snippets; this
 -- layer compiles and installs saved Lua functions in the live runtime.
 snippets = {}
 local dynamic = {}
@@ -77,7 +77,7 @@ end
 local function descriptor(definition, name)
   local descriptor = {
     name=name, path=definition.path, signature="(...)", description=definition.description or "Stored function",
-    mutating=false, returns_contract="core.result",
+    readonly = true, returns_contract="core.result",
     returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}, origin="snippet",
   }
   if definition.schema_expr then
@@ -90,7 +90,7 @@ local function descriptor(definition, name)
   descriptor.name, descriptor.path = name, definition.path
   descriptor.signature = descriptor.signature or "(...)"
   descriptor.description = descriptor.description or "Stored function"
-  descriptor.mutating = descriptor.mutating or false
+  if descriptor.readonly == nil then descriptor.readonly = true end
   descriptor.returns_contract = descriptor.returns_contract or "core.result"
   if definition.example then descriptor.examples = definition.example end
   if definition.params then descriptor.params = definition.params end
@@ -128,7 +128,7 @@ function snippets.save(definition)
   if not definition then return nil, definition_err end
   local normalized, err = install(definition, dynamic[definition.path] ~= nil)
   if not normalized then return nil, err end
-  local persisted, persist_err = _raw.snippets.save(normalized)
+  local persisted, persist_err = sys.snippets.save(normalized)
   if persist_err then
     local entry = dynamic[normalized.path]
     entry.namespace[entry.name] = nil
@@ -171,7 +171,7 @@ end
 function snippets.delete(namespace, name)
   local path = snippet_path(namespace, name)
   local entry = dynamic[path]
-  local deleted, err = _raw.snippets.delete(path)
+  local deleted, err = sys.snippets.delete(path)
   if err then return nil, err end
   if deleted and entry then
     entry.namespace[entry.name] = nil
@@ -193,18 +193,18 @@ local function public_definition(definition)
 end
 
 function snippets.get(namespace, name)
-  local definition, err = _raw.snippets.get(snippet_path(namespace, name))
+  local definition, err = sys.snippets.get(snippet_path(namespace, name))
   return public_definition(definition), err
 end
 function snippets.list()
-  local definitions, err = _raw.snippets.list()
+  local definitions, err = sys.snippets.list()
   if definitions then for _, definition in ipairs(definitions) do public_definition(definition) end end
   return definitions, err
 end
 function __restore_snippet(definition) return install(definition, false) end
 
-local function descriptor_for(name, mutating, signature, description, examples)
-  return {name=name,path="snippets."..name,mutating=mutating,signature=signature,returns_contract="core.result",description=description,examples=examples,returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}}
+local function descriptor_for(name, readonly, signature, description, examples)
+  return {name=name,path="snippets."..name,readonly=readonly,signature=signature,returns_contract="core.result",description=description,examples=examples,returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}}
 end
 snippets.__schema = {namespace="snippets",service="core",examples=[=[
 local ok, err = snippets.save({
@@ -218,8 +218,8 @@ local ok, err = snippets.save({
 if err then error(err.message) end
 return math.fibonacci(10)
 ]=],functions={
-  descriptor_for("save", true, "({namespace:string, name:string, code:string, ...})", "Persist and immediately register a trusted Lua function at namespace.name. code may be a function expression, a chunk that returns a function, or a named function declaration.", nil),
-  descriptor_for("delete", true, "(namespace, name)", "Delete a stored function from this runtime and persistence", nil),
-  descriptor_for("get", false, "(namespace, name)", "Get a stored function definition", nil),
-  descriptor_for("list", false, "()", "List stored function definitions", nil),
+  descriptor_for("save", false, "({namespace:string, name:string, code:string, ...})", "Persist and immediately register a trusted Lua function at namespace.name. code may be a function expression, a chunk that returns a function, or a named function declaration.", nil),
+  descriptor_for("delete", false, "(namespace, name)", "Delete a stored function from this runtime and persistence", nil),
+  descriptor_for("get", true, "(namespace, name)", "Get a stored function definition", nil),
+  descriptor_for("list", true, "()", "List stored function definitions", nil),
 }}

@@ -13,7 +13,7 @@ gitlab.repo.__schema = {
 			path = "gitlab.repo.get",
 			signature = "(repo)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Fetch repository info",
 			params = { { name = "repo", type = "string|number" } },
 			returns_typed = { { name = "result", type = "Repo" }, { name = "err", type = "core.error|nil" } },
@@ -24,7 +24,7 @@ gitlab.repo.__schema = {
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "Branch",
-			mutating = false,
+			readonly = true,
 			description = "List branches for a repository",
 			params = { { name = "repo", type = "string|number" }, { name = "opts", type = "table", optional = true } },
 			returns_typed = { { name = "iterator", type = "Iterator" } },
@@ -35,7 +35,7 @@ gitlab.repo.__schema = {
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "TreeEntry",
-			mutating = false,
+			readonly = true,
 			description = "List repository files and directories (returns iterator; use helpers.collect() to materialize to array)",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -48,7 +48,7 @@ gitlab.repo.__schema = {
 			path = "gitlab.repo.compare",
 			signature = "(repo, from, to)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Compare two branches",
 			params = { { name = "repo", type = "string|number" }, { name = "from", type = "string" }, { name = "to", type = "string" } },
 			returns_typed = { { name = "result", type = "CompareResult" }, { name = "err", type = "core.error|nil" } },
@@ -58,7 +58,7 @@ gitlab.repo.__schema = {
 			path = "gitlab.repo.file",
 			signature = "(repo, path, ref)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Fetch file contents",
 			params = { { name = "repo", type = "string|number" }, { name = "path", type = "string" }, { name = "ref", type = "string" } },
 			returns_typed = { { name = "result", type = "string" }, { name = "err", type = "core.error|nil" } },
@@ -104,7 +104,7 @@ function gitlab.repo.compare(repo, from, to)
 	return client.request_json("GET", repo, "repository/compare", query, nil)
 end
 
-local raw_url_path_escape = _raw.url.path_escape
+local raw_url_path_escape = sys.url.path_escape
 
 function gitlab.repo.file(repo, path, ref)
 	local query = { ref = ref or "" }

@@ -1,7 +1,7 @@
 -- task.lua: Task management API for background execution
 --
 -- This module provides functions to check status, retrieve results, and wait on
--- background tasks started via _raw.cli.start_*, _raw.http.start_*, etc.
+-- background tasks started via sys.cli.start_*, sys.http.start_*, etc.
 --
 -- Task records are retained for the lifetime of their runtime. Tasks are
 -- session-scoped: you must poll/result/wait using the same munray-mcp session
@@ -27,7 +27,7 @@ function async_task.status(task_id)
     return nil, { code = "VALIDATION", message = "task_id is required", recoverable = false }
   end
 
-  return _raw.task.status(task_id)
+  return sys.task.status(task_id)
 end
 
 -- async_task.result(task_id, opts?) -> (result, err)
@@ -46,7 +46,7 @@ function async_task.result(task_id, _opts)
   end
 
   -- opts reserved for future wait_ms implementation
-  return _raw.task.result(task_id)
+  return sys.task.result(task_id)
 end
 
 -- async_task.wait(task_id, timeout_ms?) -> (result, err)
@@ -69,7 +69,7 @@ function async_task.wait(task_id, timeout_ms)
   end
 
   timeout_ms = timeout_ms or 295000
-  return _raw.task.wait(task_id, timeout_ms)
+  return sys.task.wait(task_id, timeout_ms)
 end
 
 -- async_task.cancel(task_id) -> (cancelled, err)
@@ -80,7 +80,7 @@ function async_task.cancel(task_id)
     return nil, { code = "VALIDATION", message = "task_id is required", recoverable = false }
   end
 
-  return _raw.task.cancel(task_id)
+  return sys.task.cancel(task_id)
 end
 
 -- Schema for async_task API (for capabilities discovery)
@@ -94,7 +94,7 @@ async_task.__schema = {
       name = "status",
       signature = "(task_id)",
       returns_contract = "core.result",
-      mutating = false,
+      readonly = true,
       params = {
         { name = "task_id", type = "string", description = "Task identifier" }
       },
@@ -113,7 +113,7 @@ async_task.__schema = {
       name = "result",
       signature = "(task_id, opts?)",
       returns_contract = "core.result",
-      mutating = false,
+      readonly = true,
       params = {
         { name = "task_id", type = "string", description = "Task identifier" },
         { name = "opts", type = "table", optional = true, description = "Options (reserved for future use)" }
@@ -125,7 +125,7 @@ async_task.__schema = {
       description = "Retrieves the result of a completed task. Returns NOT_READY while running and preserves structured task errors when available.",
       examples = [[
 -- Poll until complete
-local task_id = _raw.cli.start_json("gcloud", {"projects", "list", "--format=json"})
+local task_id = sys.cli.start_json("gcloud", {"projects", "list", "--format=json"})
 local result, err = async_task.result(task_id)
 while err and err.code == "NOT_READY" do
   -- Wait and retry (in practice, make multiple tool calls)
@@ -142,7 +142,7 @@ return result
       name = "wait",
       signature = "(task_id, timeout_ms?)",
       returns_contract = "core.result",
-      mutating = false,
+      readonly = true,
       params = {
         { name = "task_id", type = "string", description = "Task identifier" },
         { name = "timeout_ms", type = "number", optional = true, description = "Timeout in milliseconds (default: 295000 = 4m55s)" }
@@ -154,7 +154,7 @@ return result
       description = "Waits for a task to complete, blocking until finished or timeout.",
       examples = [[
 -- Start async operation and wait for completion
-local task_id = _raw.cli.start_json("gcloud", {"projects", "list", "--format=json"})
+local task_id = sys.cli.start_json("gcloud", {"projects", "list", "--format=json"})
 local result, err = async_task.wait(task_id)
 if err then
   if err.code == "TIMEOUT" then
@@ -171,7 +171,7 @@ return result
       name = "cancel",
       signature = "(task_id)",
       returns_contract = "core.result",
-      mutating = false,
+      readonly = true,
       params = {
         { name = "task_id", type = "string", description = "Task identifier" }
       },

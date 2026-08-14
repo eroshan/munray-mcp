@@ -16,13 +16,13 @@ local has_pages = false
 for _, func in ipairs(schema.functions or {}) do
 	if func.name == "find" then
 		has_find = true
-		test.assert_eq(func.mutating, false, "search.find should not be mutating")
+		test.assert_eq(func.readonly, true, "search.find should not be guarded")
 		test.assert_eq(func.returns_contract, "core.iter", "search.find should return iterator contract")
 		test.assert_eq(func.yields, "SearchResult", "search.find should yield SearchResult")
 	end
 	if func.name == "pages" then
 		has_pages = true
-		test.assert_eq(func.mutating, false, "search.pages should not be mutating")
+		test.assert_eq(func.readonly, true, "search.pages should not be guarded")
 		test.assert_eq(func.returns_contract, "core.iter", "search.pages should return iterator contract")
 		test.assert_eq(func.yields, "SearchResult", "search.pages should yield SearchResult")
 	end
@@ -33,31 +33,23 @@ test.assert(has_pages, "search schema should include pages function")
 
 test.describe("Confluence Search - Input Validation")
 
-local ok, err = pcall(function()
-	return confluence.search.find(nil)
-end)
-test.assert_eq(ok, false, "search.find should throw for missing cql")
+local result, err = confluence.search.find(nil)
+test.assert_nil(result, "search.find should return nil for missing cql")
 test.assert_not_nil(err, "search.find should return structured error for missing cql")
 test.assert_eq(err.code, "MISSING_REQUIRED_FIELD", "search.find should return MISSING_REQUIRED_FIELD")
 
-ok, err = pcall(function()
-	return confluence.search.find("")
-end)
-test.assert_eq(ok, false, "search.find should throw for empty cql")
+result, err = confluence.search.find("")
+test.assert_nil(result, "search.find should return nil for empty cql")
 test.assert_not_nil(err, "search.find should return structured error for empty cql")
 test.assert_eq(err.code, "MISSING_REQUIRED_FIELD", "search.find should return MISSING_REQUIRED_FIELD")
 
-ok, err = pcall(function()
-	return confluence.search.pages(nil)
-end)
-test.assert_eq(ok, false, "search.pages should throw for missing query")
+result, err = confluence.search.pages(nil)
+test.assert_nil(result, "search.pages should return nil for missing query")
 test.assert_not_nil(err, "search.pages should return structured error for missing query")
 test.assert_eq(err.code, "MISSING_REQUIRED_FIELD", "search.pages should return MISSING_REQUIRED_FIELD")
 
-ok, err = pcall(function()
-	return confluence.search.pages("")
-end)
-test.assert_eq(ok, false, "search.pages should throw for empty query")
+result, err = confluence.search.pages("")
+test.assert_nil(result, "search.pages should return nil for empty query")
 test.assert_not_nil(err, "search.pages should return structured error for empty query")
 test.assert_eq(err.code, "MISSING_REQUIRED_FIELD", "search.pages should return MISSING_REQUIRED_FIELD")
 
@@ -139,10 +131,8 @@ local escaped_results = helpers.collect(confluence.search.pages('run"book\\path'
 test.assert_eq(#escaped_results, 1, "search.pages should still return stubbed results for escaped queries")
 test.assert_eq(captured.opts.query.cql, 'siteSearch ~ "run\\"book\\\\path" AND type = page', "search.pages should escape quotes and backslashes for CQL")
 
-ok, err = pcall(function()
-	return confluence.search.pages("bad\1query")
-end)
-test.assert_eq(ok, false, "search.pages should reject unsupported control characters")
+result, err = confluence.search.pages("bad\1query")
+test.assert_nil(result, "search.pages should return nil for unsupported control characters")
 test.assert_not_nil(err, "search.pages should return structured error for unsupported control characters")
 test.assert_eq(err.code, "VALIDATION_FAILED", "search.pages should return VALIDATION_FAILED for unsupported control characters")
 

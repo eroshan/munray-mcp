@@ -14,7 +14,7 @@ fn async_cli_json_can_be_waited_for() {
     .unwrap();
     let runtime = LuaRuntime::new(Some(services.path())).unwrap();
     let result = runtime.execute(
-        r#"local id, err = _raw.cli.start_json('sh', {'-c', [[printf '{"ok":true}']]}); if err then error(err.message) end; local value, wait_err = async_task.wait(id, 5000); if wait_err then error(wait_err.message) end; return value.ok"#,
+        r#"local id, err = sys.cli.start_json('sh', {'-c', [[printf '{"ok":true}']]}); if err then error(err.message) end; local value, wait_err = async_task.wait(id, 5000); if wait_err then error(wait_err.message) end; return value.ok"#,
         ExecutionMode::ReadOnly,
         "<test>",
     ).unwrap();
@@ -39,7 +39,7 @@ fn generic_test_task_uses_the_shared_task_registry() {
     let runtime = LuaRuntime::new(None).unwrap();
     let execution = runtime
         .execute(
-            "local id, err = _raw.test.start_task(1, {answer=42}); if err then error(err.message) end; local value, wait_err = async_task.wait(id, 1000); if wait_err then error(wait_err.message) end; return value.answer",
+            "local id, err = sys.test.start_task(1, {answer=42}); if err then error(err.message) end; local value, wait_err = async_task.wait(id, 1000); if wait_err then error(wait_err.message) end; return value.answer",
             ExecutionMode::ReadOnly,
             "<test>",
         )
@@ -60,7 +60,7 @@ fn async_cli_preserves_timeout_error_code() {
     let runtime = LuaRuntime::new(Some(services.path())).unwrap();
     let execution = runtime
         .execute(
-            "local id = _raw.cli.start_text('sh', {'-c', 'while :; do :; done'}, {timeout=0.02}); local value, err = async_task.wait(id, 1000); return err.code",
+            "local id = sys.cli.start_text('sh', {'-c', 'while :; do :; done'}, {timeout=0.02}); local value, err = async_task.wait(id, 1000); return err.code",
             ExecutionMode::ReadOnly,
             "<test>",
         )
@@ -84,7 +84,7 @@ fn cancelling_async_cli_stops_the_subprocess() {
     let execution = runtime
         .execute(
             &format!(
-                "local id, err = _raw.cli.start_text('sh', {{'-c', 'sleep 0.2; printf done > \"$1\"', 'sh', {marker_lua}}}); if err then error(err.message) end; return async_task.cancel(id)"
+                "local id, err = sys.cli.start_text('sh', {{'-c', 'sleep 0.2; printf done > \"$1\"', 'sh', {marker_lua}}}); if err then error(err.message) end; return async_task.cancel(id)"
             ),
             ExecutionMode::ReadOnly,
             "<test>",

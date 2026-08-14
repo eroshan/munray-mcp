@@ -2,7 +2,7 @@
 -- Retrieve log entries from Cloud Logging (async task-based)
 
 -- Capture raw primitives as upvalues (security best practice)
-local raw_cli_start_json = _raw.cli.start_json
+local raw_cli_start_json = sys.cli.start_json
 
 local LOGS_GET_TIMEOUT_SECONDS = 300
 
@@ -66,7 +66,7 @@ local function logs_get(project, filter, opts)
 	-- Add JSON output format
 	table.insert(args, "--format=json")
 
-	-- Execute via _raw.cli.start_json primitive (async task-based)
+	-- Execute via sys.cli.start_json primitive (async task-based)
 	local task_id, err = raw_cli_start_json("gcloud", args, { timeout = LOGS_GET_TIMEOUT_SECONDS })
 	if err then
 		return nil, {
@@ -102,7 +102,7 @@ gcloud.logs.__schema = {
 				usage = "Returns a task_id handle. Use async_task.status(task_id) to poll, async_task.result(task_id) to fetch the result, or async_task.wait(task_id) to block until ready.",
 			},
 			description = "Start async retrieval of log entries from Cloud Logging. Returns a task_id string for later polling. Use async_task.wait(), async_task.status(), and async_task.result() to retrieve logs. The final result is a plain Lua array of LogEntry.",
-			mutating = false,
+			readonly = true,
 			params = {
 				{
 					name = "project",

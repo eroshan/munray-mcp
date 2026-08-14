@@ -40,7 +40,7 @@ fn http_request_preserves_base_path_and_decodes_json() {
     );
     let runtime = LuaRuntime::new(None).unwrap();
     let code = format!(
-        "local value, err = _raw.http.request('GET', '{}', '/items', {{ query = {{ page = 2 }} }})\nif err then error(err.message) end\nreturn value",
+        "local value, err = sys.http.request('GET', '{}', '/items', {{ query = {{ page = 2 }} }})\nif err then error(err.message) end\nreturn value",
         base
     );
     let result = runtime
@@ -57,7 +57,7 @@ fn graphql_request_returns_data_by_default() {
     );
     let runtime = LuaRuntime::new(None).unwrap();
     let code = format!(
-        "local value, err = _raw.graphql.request('{}', 'query {{ viewer {{ id }} }}', {{ path = '/graphql' }})\nif err then error(err.message) end\nreturn value.viewer.id",
+        "local value, err = sys.graphql.request('{}', 'query {{ viewer {{ id }} }}', {{ path = '/graphql' }})\nif err then error(err.message) end\nreturn value.viewer.id",
         base
     );
     let result = runtime
@@ -75,7 +75,7 @@ fn http_list_supports_page_pagination() {
     ]);
     let runtime = LuaRuntime::new(None).unwrap();
     let code = format!(
-        "local iter = _raw.http.list('GET', '{}', '/items', {{ per_page = 2, pagination = {{ kind = 'page', items_path = 'items' }} }})\nlocal values, err = helpers.collect(iter)\nif err then error(err.message) end\nreturn #values",
+        "local iter = sys.http.list('GET', '{}', '/items', {{ per_page = 2, pagination = {{ kind = 'page', items_path = 'items' }} }})\nlocal values, err = helpers.collect(iter)\nif err then error(err.message) end\nreturn #values",
         base
     );
     let result = runtime

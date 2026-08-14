@@ -4,10 +4,10 @@ local request = confluence._client.request
 local list_request = confluence._client.list
 local missing_required_field_err = confluence._client.missing_required_field_err
 
-local raw_blob_from_http = _raw.blob.from_http
-local raw_vfs_write_blob = _raw.vfs.write_blob
-local raw_vfs_expose = _raw.vfs.expose
-local raw_url_path_escape = _raw.url.path_escape
+local raw_blob_from_http = sys.blob.from_http
+local raw_vfs_write_blob = sys.vfs.write_blob
+local raw_vfs_expose = sys.vfs.expose
+local raw_url_path_escape = sys.url.path_escape
 
 local function validation_err(message, context)
 	return {
@@ -799,7 +799,7 @@ confluence.page.__schema = {
 			path = "confluence.page.get",
 			signature = "(id, opts?)",
 			description = "Get full page object by id. Returns complete Page with metadata. If the requested body representation contains Confluence-hosted images, they are saved and exposed for agent inspection and a hint field is added with image names and host paths.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.result",
 			params = {
 				{ name = "id", type = "string|number", optional = false, description = "Page id" },
@@ -821,7 +821,7 @@ return page
 			path = "confluence.page.content",
 			signature = "(id, opts?)",
 			description = "Get page content in specified format (storage, view, or export_view). If Confluence-hosted images are detected, they are saved and exposed for agent inspection and the page hint is appended to the end of the returned body text.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.result",
 			params = {
 				{ name = "id", type = "string|number", optional = false, description = "Page id" },
@@ -843,7 +843,7 @@ return content
 			path = "confluence.page.find",
 			signature = "(url)",
 			description = "Find page by URL. Extracts page ID from URL and returns full Page object.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.result",
 			params = {
 				{ name = "url", type = "string", optional = false, description = "Confluence page URL containing /pages/<id>/ or ?pageId=<id>" },
@@ -864,7 +864,7 @@ return page
 			path = "confluence.page.list",
 			signature = "(space_key, opts?)",
 			description = "List pages in a space. Returns iterator for lazy pagination.",
-			mutating = false,
+			readonly = true,
 			returns_contract = "core.iter",
 			yields = "Page",
 			params = {
@@ -888,7 +888,7 @@ return pages
 			path = "confluence.page.create",
 			signature = "(space_key, data)",
 			description = "Create a new page in a space.",
-			mutating = true,
+			readonly = false,
 			returns_contract = "core.result",
 			params = {
 				{ name = "space_key", type = "string", optional = false, description = "Space key or ID" },
@@ -914,7 +914,7 @@ return page
 			path = "confluence.page.update",
 			signature = "(id, data)",
 			description = "Update an existing page. Accepts content as data.content, data.body (string), or data.body.<representation>.value. Version is optional: if omitted, current version is fetched and incremented; otherwise accepts {number=N} or a plain number. Title is reused from current page if omitted. Returns refreshed page after PUT+GET, with sanity check that version actually advanced (catches silent server-side no-ops).",
-			mutating = true,
+			readonly = false,
 			returns_contract = "core.result",
 			params = {
 				{ name = "id", type = "string|number", optional = false, description = "Page id" },
@@ -938,7 +938,7 @@ return page
 			path = "confluence.page.find_and_replace",
 			signature = "(id, search, replacement, opts?)",
 			description = "String substitution in page body (storage representation). Default opts.plain=true treats search/replacement as literals (escapes Lua pattern magic). Returns {page, replacements}. Errors with NO_MATCH if no replacements unless opts.allow_empty=true.",
-			mutating = true,
+			readonly = false,
 			returns_contract = "core.result",
 			params = {
 				{ name = "id", type = "string|number", optional = false, description = "Page id" },

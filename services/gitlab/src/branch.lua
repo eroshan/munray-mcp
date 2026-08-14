@@ -3,7 +3,7 @@
 
 -- Capture client from init (will be available when this executes)
 local client = gitlab._get_client()
-local raw_url_path_escape = _raw.url.path_escape
+local raw_url_path_escape = sys.url.path_escape
 
 gitlab.branch.__schema = {
 	namespace = "gitlab.branch",
@@ -14,7 +14,7 @@ gitlab.branch.__schema = {
 			path = "gitlab.branch.create",
 			signature = "(repo, data)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Create a new branch from the specified ref (branch name or commit SHA)",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -30,7 +30,7 @@ gitlab.branch.__schema = {
 			path = "gitlab.branch.get",
 			signature = "(repo, branch_name)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Get details for a single branch",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -47,7 +47,7 @@ gitlab.branch.__schema = {
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "Branch",
-			mutating = false,
+			readonly = true,
 			description = "List branches for a repository (returns iterator; use helpers.collect() to materialize to array)",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -62,7 +62,7 @@ gitlab.branch.__schema = {
 			path = "gitlab.branch.delete",
 			signature = "(repo, branch_name)",
 			returns_contract = "core.result",
-			mutating = true,
+			readonly = false,
 			description = "Delete a branch",
 			params = {
 				{ name = "repo", type = "string|number" },

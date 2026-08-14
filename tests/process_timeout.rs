@@ -21,7 +21,7 @@ fn synchronous_cli_honors_timeout_option() {
     let (_services, runtime) = runtime_with_shell();
     let execution = runtime
         .execute(
-            "local value, err = _raw.cli.text('sh', {'-c', 'while :; do :; done'}, {timeout=0.02}); return err.code",
+            "local value, err = sys.cli.text('sh', {'-c', 'while :; do :; done'}, {timeout=0.02}); return err.code",
             ExecutionMode::ReadOnly,
             "<test>",
         )
@@ -34,7 +34,7 @@ fn cli_blob_honors_timeout_option() {
     let (_services, runtime) = runtime_with_shell();
     let execution = runtime
         .execute(
-            "local value, err = _raw.blob.from_cli('sh', {'-c', 'while :; do :; done'}, {timeout=0.02}); return err.code",
+            "local value, err = sys.blob.from_cli('sh', {'-c', 'while :; do :; done'}, {timeout=0.02}); return err.code",
             ExecutionMode::ReadOnly,
             "<test>",
         )
@@ -48,7 +48,7 @@ fn cli_inherits_the_active_lua_execution_deadline() {
     let started = Instant::now();
     let execution = runtime
         .execute_with_timeout(
-            "local value, err = _raw.cli.text('sh', {'-c', 'while :; do :; done'}, {timeout=5}); return err.code",
+            "local value, err = sys.cli.text('sh', {'-c', 'while :; do :; done'}, {timeout=5}); return err.code",
             ExecutionMode::ReadOnly,
             "<test>",
             Some(Duration::from_millis(30)),

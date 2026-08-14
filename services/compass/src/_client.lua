@@ -1,8 +1,8 @@
 -- Internal Compass GraphQL client
 -- luacheck: globals compass _compass_client
 
-local raw_graphql_request = _raw.graphql.request
-local raw_graphql_list = _raw.graphql.list
+local raw_graphql_request = sys.graphql.request
+local raw_graphql_list = sys.graphql.list
 
 _compass_client = {}
 local client = _compass_client
@@ -252,9 +252,9 @@ function client.get_auth(cfg)
 		cfg = resolved_cfg
 	end
 
-	local email_ref = _raw.secrets.env(cfg.email_env)
-	local token_ref = _raw.secrets.env(cfg.token_env)
-	compass._auth = _raw.auth.basic(email_ref, token_ref)
+	local email_ref = sys.secrets.env(cfg.email_env)
+	local token_ref = sys.secrets.env(cfg.token_env)
+	compass._auth = sys.auth.basic(email_ref, token_ref)
 
 	return compass._auth, nil
 end

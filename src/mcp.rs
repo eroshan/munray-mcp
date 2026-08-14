@@ -53,7 +53,7 @@ fn remove_pending_arrival(session_id: &str, arrival: u64) {
     }
 }
 
-fn mutating_confirmation_message(request: &ScriptRequest) -> String {
+fn guarded_confirmation_message(request: &ScriptRequest) -> String {
     let session = request
         .session_id
         .as_deref()
@@ -64,14 +64,14 @@ fn mutating_confirmation_message(request: &ScriptRequest) -> String {
     if trimmed.chars().count() > 240 {
         preview.push_str("... (truncated)");
     }
-    format!("Mutating Lua execution requested.\n\nSession: {session}\nCode preview:\n{preview}")
+    format!("Guarded Lua execution requested.\n\nSession: {session}\nCode preview:\n{preview}")
 }
 
-fn mutating_confirmation_schema() -> Result<ElicitationSchema, String> {
+fn guarded_confirmation_schema() -> Result<ElicitationSchema, String> {
     let choices = vec!["Approve".to_owned(), "Reject".to_owned()];
     let decision = EnumSchema::builder(choices.clone())
-        .title("Approve mutating operation?")
-        .description("Select Approve to execute the mutating code, or Reject to cancel")
+        .title("Approve guarded operation?")
+        .description("Select Approve to execute the guarded code, or Reject to cancel")
         .enum_titles(choices)
         .map_err(|error| error.to_string())?
         .build();
@@ -204,7 +204,7 @@ impl McpServer {
     }
 
     #[tool(
-        name = "lua_runLuaScript",
+        name = "runLuaScript",
         description = "Execute Lua scripts in read-only mode. See initialize instructions for discovery, session reuse, and scoping guidance."
     )]
     async fn run_lua(
@@ -217,10 +217,10 @@ impl McpServer {
     }
 
     #[tool(
-        name = "lua_runMutatingLuaScript",
+        name = "runGuardedLuaScript",
         description = "Execute Lua scripts with explicit mutation permission."
     )]
-    async fn run_mutating_lua(
+    async fn run_guarded_lua(
         &self,
         Parameters(mut request): Parameters<ScriptRequest>,
         context: RequestContext<RoleServer>,
@@ -231,8 +231,8 @@ impl McpServer {
             .supported_elicitation_modes()
             .contains(&ElicitationMode::Form)
         {
-            let message = mutating_confirmation_message(&request);
-            let schema = mutating_confirmation_schema()?;
+            let message = guarded_confirmation_message(&request);
+            let schema = guarded_confirmation_schema()?;
             let params = CreateElicitationRequestParams::FormElicitationParams {
                 meta: None,
                 message,
@@ -250,15 +250,15 @@ impl McpServer {
                         ElicitationAction::Decline => "declined",
                         ElicitationAction::Cancel => "cancelled",
                     };
-                    return self.reject_mutating(request, status);
+                    return self.reject_guarded(request, status);
                 }
-                Err(_) => return self.reject_mutating(request, "elicitation_failed"),
+                Err(_) => return self.reject_guarded(request, "elicitation_failed"),
             }
         }
-        self.execute(request, ExecutionMode::Mutating)
+        self.execute(request, ExecutionMode::Guarded)
     }
 
-    fn reject_mutating(&self, request: ScriptRequest, status: &str) -> Result<String, String> {
+    fn reject_guarded(&self, request: ScriptRequest, status: &str) -> Result<String, String> {
         if let Some(session_id) = &request.session_id {
             remove_pending_arrival(session_id, request.arrival);
         }
@@ -270,13 +270,13 @@ impl McpServer {
             "output": "",
             "result": Value::Null,
             "error": {
-                "code": "MUTATING_REJECTED",
-                "message": format!("mutating operation {status} by user"),
+                "code": "REJECTED_BY_GUARD",
+                "message": format!("guarded operation {status} by user"),
                 "recoverable": false
             },
             "confirmation": {
                 "status": status,
-                "mode": "mutating"
+                "mode": "guarded"
             }
         }))
         .map_err(|error| error.to_string())
@@ -350,7 +350,7 @@ impl McpServer {
                 session_id: session_id.clone(),
                 mode: match mode {
                     ExecutionMode::ReadOnly => "readonly",
-                    ExecutionMode::Mutating => "mutating",
+                    ExecutionMode::Guarded => "guarded",
                 }
                 .into(),
                 code: request.code.clone(),
@@ -395,7 +395,7 @@ impl ServerHandler for McpServer {
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
             ))
-            .with_instructions("Execute Lua with lua_runLuaScript by default. Reuse session_id to preserve global state; local variables are call-scoped. Use capabilities.ai_context() to discover APIs.")
+            .with_instructions("Execute Lua with runLuaScript by default. Reuse session_id to preserve global state; local variables are call-scoped. Use capabilities.ai_context() to discover APIs.")
     }
 }
 

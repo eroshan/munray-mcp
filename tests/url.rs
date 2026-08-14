@@ -4,7 +4,7 @@ use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 fn query_and_path_escaping_match_the_contract() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime.execute(
-        "local q=_raw.url.query_escape('a b/c+d'); local p=_raw.url.path_escape('a b/c+d'); local qu=_raw.url.query_unescape(q); local pu=_raw.url.path_unescape(p); return {q=q,p=p,qu=qu,pu=pu}",
+        "local q=sys.url.query_escape('a b/c+d'); local p=sys.url.path_escape('a b/c+d'); local qu=sys.url.query_unescape(q); local pu=sys.url.path_unescape(p); return {q=q,p=p,qu=qu,pu=pu}",
         ExecutionMode::ReadOnly,
         "<test>",
     ).unwrap();
@@ -18,7 +18,7 @@ fn query_and_path_escaping_match_the_contract() {
 fn invalid_percent_escape_returns_context() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime.execute(
-        "local value, err=_raw.url.query_unescape('bad%zz'); return {value=value,code=err.code,input=err.context.value}",
+        "local value, err=sys.url.query_unescape('bad%zz'); return {value=value,code=err.code,input=err.context.value}",
         ExecutionMode::ReadOnly,
         "<test>",
     ).unwrap();

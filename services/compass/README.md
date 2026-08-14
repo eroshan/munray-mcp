@@ -1,6 +1,6 @@
 # Compass service pack
 
-Read-only Atlassian Compass service pack built on `_raw.graphql.*`.
+Read-only Atlassian Compass service pack built on `sys.graphql.*`.
 
 ## Required environment
 

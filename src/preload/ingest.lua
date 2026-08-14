@@ -2,7 +2,7 @@
 -- luacheck: globals ingest
 -- User-facing ingest namespace (ingest.*)
 
-if type(_raw) ~= "table" or type(_raw.ingest) ~= "table" then
+if type(sys) ~= "table" or type(sys.ingest) ~= "table" then
 	return
 end
 
@@ -25,7 +25,7 @@ print(text)
 			path = "ingest.get",
 			signature = "(token)",
 			returns_contract = "core.result",
-			mutating = false,
+			readonly = true,
 			description = "Read UTF-8 text for an ingest token previously stored in the current session.",
 			params = {
 				{ name = "token", type = "string", description = "Token returned by `munray-mcp ingest`" },
@@ -44,5 +44,5 @@ return text
 }
 
 function ingest.get(token)
-	return _raw.ingest.get(token)
+	return sys.ingest.get(token)
 end
