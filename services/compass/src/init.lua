@@ -24,7 +24,7 @@ compass.__schema = {
 				{ name = "result", type = "boolean", description = "True when Compass configuration and auth are valid" },
 				{ name = "err", type = "core.error|nil", description = "Error when Compass is not configured or the API request fails" },
 			},
-			readonly = true,
+			guarded = false,
 		},
 		{
 			name = "components",
@@ -39,7 +39,7 @@ compass.__schema = {
 				{ name = "result", type = "CompassComponent[]", description = "Matching Compass components" },
 				{ name = "err", type = "core.error|nil", description = "Error when validation or GraphQL request fails" },
 			},
-			readonly = true,
+			guarded = false,
 		},
 		{
 			name = "component",
@@ -54,7 +54,7 @@ compass.__schema = {
 				{ name = "result", type = "CompassComponent|nil", description = "Compass component when found" },
 				{ name = "err", type = "core.error|nil", description = "Error when validation or GraphQL request fails" },
 			},
-			readonly = true,
+			guarded = false,
 		},
 		{
 			name = "searchComponents",
@@ -69,7 +69,7 @@ compass.__schema = {
 			returns_typed = {
 				{ name = "iterator", type = "Iterator" },
 			},
-			readonly = true,
+			guarded = false,
 		},
 		{
 			name = "componentLogs",
@@ -84,7 +84,7 @@ compass.__schema = {
 			returns_typed = {
 				{ name = "iterator", type = "Iterator" },
 			},
-			readonly = true,
+			guarded = false,
 		},
 	},
 	types = {

@@ -798,7 +798,7 @@ confluence.page.__schema = {
 			name = "get",
 			signature = "(id, opts?)",
 			description = "Get full page object by id. Returns complete Page with metadata. If the requested body representation contains Confluence-hosted images, they are saved and exposed for agent inspection and a hint field is added with image names and host paths.",
-			readonly = true,
+			guarded = false,
 			returns_contract = "core.result",
 			params = {
 				{ name = "id", type = "string|number", optional = false, description = "Page id" },
@@ -819,7 +819,7 @@ return page
 			name = "content",
 			signature = "(id, opts?)",
 			description = "Get page content in specified format (storage, view, or export_view). If Confluence-hosted images are detected, they are saved and exposed for agent inspection and the page hint is appended to the end of the returned body text.",
-			readonly = true,
+			guarded = false,
 			returns_contract = "core.result",
 			params = {
 				{ name = "id", type = "string|number", optional = false, description = "Page id" },
@@ -840,7 +840,7 @@ return content
 			name = "find",
 			signature = "(url)",
 			description = "Find page by URL. Extracts page ID from URL and returns full Page object.",
-			readonly = true,
+			guarded = false,
 			returns_contract = "core.result",
 			params = {
 				{ name = "url", type = "string", optional = false, description = "Confluence page URL containing /pages/<id>/ or ?pageId=<id>" },
@@ -860,7 +860,7 @@ return page
 			name = "list",
 			signature = "(space_key, opts?)",
 			description = "List pages in a space. Returns iterator for lazy pagination.",
-			readonly = true,
+			guarded = false,
 			returns_contract = "core.iter",
 			yields = "Page",
 			params = {
@@ -883,7 +883,7 @@ return pages
 			name = "create",
 			signature = "(space_key, data)",
 			description = "Create a new page in a space.",
-			readonly = false,
+			guarded = true,
 			returns_contract = "core.result",
 			params = {
 				{ name = "space_key", type = "string", optional = false, description = "Space key or ID" },
@@ -908,7 +908,7 @@ return page
 			name = "update",
 			signature = "(id, data)",
 			description = "Update an existing page. Accepts content as data.content, data.body (string), or data.body.<representation>.value. Version is optional: if omitted, current version is fetched and incremented; otherwise accepts {number=N} or a plain number. Title is reused from current page if omitted. Returns refreshed page after PUT+GET, with sanity check that version actually advanced (catches silent server-side no-ops).",
-			readonly = false,
+			guarded = true,
 			returns_contract = "core.result",
 			params = {
 				{ name = "id", type = "string|number", optional = false, description = "Page id" },
@@ -931,7 +931,7 @@ return page
 			name = "find_and_replace",
 			signature = "(id, search, replacement, opts?)",
 			description = "String substitution in page body (storage representation). Default opts.plain=true treats search/replacement as literals (escapes Lua pattern magic). Returns {page, replacements}. Errors with NO_MATCH if no replacements unless opts.allow_empty=true.",
-			readonly = false,
+			guarded = true,
 			returns_contract = "core.result",
 			params = {
 				{ name = "id", type = "string|number", optional = false, description = "Page id" },

@@ -30,7 +30,7 @@ jira.__schema = {
                 { name = "result", type = "boolean", description = "True if Jira is ready" },
                 { name = "err", type = "core.error|nil", description = "Error if not ready or auth failed" }
             },
-            readonly = true
+            guarded = false
         }
     },
     resources = { "jira.issue", "jira.project", "jira.field" }

@@ -10,7 +10,11 @@ pub fn load(lua: &Lua, service_dir: &Path) -> Result<()> {
     }
     let mut services = fs::read_dir(service_dir)?
         .filter_map(Result::ok)
-        .filter(|entry| entry.path().is_dir())
+        .filter(|entry| {
+            !entry.file_name().to_string_lossy().starts_with('.')
+                && entry.path().is_dir()
+                && entry.path().join("src").is_dir()
+        })
         .collect::<Vec<_>>();
     services.sort_by_key(|entry| entry.file_name());
 
@@ -31,12 +35,10 @@ pub fn load(lua: &Lua, service_dir: &Path) -> Result<()> {
             })
             .map(|entry| entry.into_path())
             .collect::<Vec<_>>();
-        files.sort_by_key(|path| {
-            (
-                path.file_name().is_none_or(|name| name != "init.lua"),
-                path.clone(),
-            )
-        });
+        files.sort();
+        // The service entry point always precedes its resources.  The validator
+        // uses the same candidate rules as the runtime loader.
+        files.sort_by_key(|path| path.file_name().is_none_or(|name| name != "init.lua"));
         for path in files {
             let source = fs::read_to_string(&path)?;
             lua.load(&source)
@@ -80,11 +82,5 @@ pub fn load(lua: &Lua, service_dir: &Path) -> Result<()> {
 }
 
 pub fn validate(service_dir: &Path) -> Result<usize> {
-    let _runtime = crate::runtime::LuaRuntime::new(Some(service_dir))?;
-    Ok(WalkDir::new(service_dir)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_name() == "init.lua")
-        .count())
+    crate::validate::run(service_dir)
 }

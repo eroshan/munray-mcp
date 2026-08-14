@@ -119,7 +119,7 @@ confluence.search.__schema = {
 			name = "find",
 			signature = "(cql, opts?)",
 			description = "Search Confluence with CQL. Returns a lazy iterator of search results.",
-			readonly = true,
+			guarded = false,
 			returns_contract = "core.iter",
 			yields = "SearchResult",
 			params = {
@@ -144,7 +144,7 @@ return results
 			name = "pages",
 			signature = "(query, opts?)",
 			description = "Search Confluence pages by plain-text query. Builds page-scoped CQL and returns a lazy iterator of search results.",
-			readonly = true,
+			guarded = false,
 			returns_contract = "core.iter",
 			yields = "SearchResult",
 			params = {

@@ -739,7 +739,7 @@ gcloud.bigquery.__schema = {
 			signature = "(project, sql, [opts])",
 			returns_contract = "core.result",
 			description = "Execute BigQuery SQL query or validate with dry-run. Blocks mutations (INSERT/UPDATE/DELETE/etc). Default 1GB billing limit for safety. Returns up to 100 rows by default; set opts.max_rows to override.",
-			readonly = true,
+			guarded = false,
 			params = {
 				{
 					name = "project",
@@ -830,7 +830,7 @@ return rows
 			signature = "(project, table, [opts])",
 			returns_contract = "core.result",
 			description = "Show BigQuery table/view metadata. Returns table info by default; when opts.schema=true returns schema-only.",
-			readonly = true,
+			guarded = false,
 			params = {
 				{
 					name = "project",
@@ -897,7 +897,7 @@ return info
 			signature = "(project, table, [opts])",
 			returns_contract = "core.result",
 			description = "DEPRECATED: Use gcloud.bigquery.describe() instead. This is a backward compatibility alias.",
-			readonly = true,
+			guarded = false,
 			params = {
 				{
 					name = "project",

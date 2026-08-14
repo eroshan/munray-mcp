@@ -28,7 +28,7 @@ confluence.__schema = {
 				{ name = "result", type = "boolean", description = "True if Confluence is ready" },
 				{ name = "err", type = "core.error|nil", description = "Error if not ready or host probe failed" },
 			},
-			readonly = true,
+			guarded = false,
 		},
 	},
 	resources = { "confluence.page", "confluence.search" },

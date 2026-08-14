@@ -180,9 +180,9 @@ This allows:
 
 Transport details are **not** the source of truth for guarded policy.
 
-- Do **not** pass extra mutation markers such as `opts.readonly = false`
+- Do **not** pass extra mutation markers such as `opts.guarded = true`
 - Do **not** rely on transport shape (CLI verb, HTTP method, GraphQL operation type) as the guarded declaration
-- Declare mutation only once: `__schema.functions[].readonly = false`
+- Declare mutation only once: `__schema.functions[].guarded = true`
 
 Raw primitives are internal implementation tools. Go derives guarded policy from the enclosing schema-backed public wrapper, not from raw transport arguments.
 
@@ -255,7 +255,7 @@ myservice.resource.__schema = {
       name = "get",
       signature = "(id)",
       description = "Fetch a resource by id.",
-      readonly = true,
+      guarded = false,
       returns_contract = "core.result",
       params = {
         { name = "id", type = "string", optional = false },
@@ -294,7 +294,7 @@ myservice.resource.__schema = {
       name = "list",
       signature = "(opts?)",
       description = "List resources (lazy iterator).",
-      readonly = true,
+      guarded = false,
       returns_contract = "core.iter",
       yields = "Resource",
       params = {
@@ -524,7 +524,7 @@ Guidelines:
 - treat `sys.graphql.*` as a service-implementation primitive, not a user-facing API contract
 - prefer `sys.graphql.request` for one-shot queries and `sys.graphql.list` for connection/offset pagination
 - use ordered header lists when the upstream API requires duplicate header names
-- public wrappers around GraphQL mutations must still set `__schema.functions[].readonly = false`; do not add Lua-side `sys.exec_mode()` checks or extra raw-layer mutation markers
+- public wrappers around GraphQL mutations must still set `__schema.functions[].guarded = true`; do not add Lua-side `sys.exec_mode()` checks or extra raw-layer mutation markers
 
 ---
 

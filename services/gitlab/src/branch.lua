@@ -13,7 +13,7 @@ gitlab.branch.__schema = {
 			name = "create",
 			signature = "(repo, data)",
 			returns_contract = "core.result",
-			readonly = false,
+			guarded = true,
 			description = "Create a new branch from the specified ref (branch name or commit SHA)",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -28,7 +28,7 @@ gitlab.branch.__schema = {
 			name = "get",
 			signature = "(repo, branch_name)",
 			returns_contract = "core.result",
-			readonly = true,
+			guarded = false,
 			description = "Get details for a single branch",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -44,7 +44,7 @@ gitlab.branch.__schema = {
 			signature = "(repo, opts)",
 			returns_contract = "core.iter",
 			yields = "Branch",
-			readonly = true,
+			guarded = false,
 			description = "List branches for a repository (returns iterator; use helpers.collect() to materialize to array)",
 			params = {
 				{ name = "repo", type = "string|number" },
@@ -58,7 +58,7 @@ gitlab.branch.__schema = {
 			name = "delete",
 			signature = "(repo, branch_name)",
 			returns_contract = "core.result",
-			readonly = false,
+			guarded = true,
 			description = "Delete a branch",
 			params = {
 				{ name = "repo", type = "string|number" },

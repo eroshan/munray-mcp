@@ -76,8 +76,8 @@ end
 
 local function descriptor(definition, name)
   local descriptor = {
-    name=name, path=definition.path, signature="(...)", description=definition.description or "Stored function",
-    readonly = true, returns_contract="core.result",
+    name=name, signature="(...)", description=definition.description or "Stored function",
+    returns_contract="core.result",
     returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}, origin="snippet",
   }
   if definition.schema_expr then
@@ -87,10 +87,17 @@ local function descriptor(definition, name)
     if not ok or type(values) ~= "table" then return fail("VALIDATION", tostring(values)) end
     for key, value in pairs(values) do descriptor[key] = value end
   end
-  descriptor.name, descriptor.path = name, definition.path
+  descriptor.name = name
+  descriptor.path = nil
   descriptor.signature = descriptor.signature or "(...)"
   descriptor.description = descriptor.description or "Stored function"
-  if descriptor.readonly == nil then descriptor.readonly = true end
+  -- Accept persisted legacy schemas while exposing the canonical guarded
+  -- descriptor to capabilities and the Rust wrapper registry.
+  if descriptor.guarded == nil and type(descriptor.readonly) == "boolean" then
+    descriptor.guarded = not descriptor.readonly
+  end
+  descriptor.readonly = nil
+  if descriptor.guarded == nil then descriptor.guarded = false end
   descriptor.returns_contract = descriptor.returns_contract or "core.result"
   if definition.example then descriptor.examples = definition.example end
   if definition.params then descriptor.params = definition.params end
@@ -203,8 +210,8 @@ function snippets.list()
 end
 function __restore_snippet(definition) return install(definition, false) end
 
-local function descriptor_for(name, readonly, signature, description, examples)
-  return {name=name,path="snippets."..name,readonly=readonly,signature=signature,returns_contract="core.result",description=description,examples=examples,returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}}
+local function descriptor_for(name, guarded, signature, description, examples)
+  return {name=name,guarded=guarded,signature=signature,returns_contract="core.result",description=description,examples=examples,returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}}
 end
 snippets.__schema = {namespace="snippets",service="core",examples=[=[
 local ok, err = snippets.save({
@@ -218,8 +225,8 @@ local ok, err = snippets.save({
 if err then error(err.message) end
 return math.fibonacci(10)
 ]=],functions={
-  descriptor_for("save", false, "({namespace:string, name:string, code:string, ...})", "Persist and immediately register a trusted Lua function at namespace.name. code may be a function expression, a chunk that returns a function, or a named function declaration.", nil),
-  descriptor_for("delete", false, "(namespace, name)", "Delete a stored function from this runtime and persistence", nil),
-  descriptor_for("get", true, "(namespace, name)", "Get a stored function definition", nil),
-  descriptor_for("list", true, "()", "List stored function definitions", nil),
+  descriptor_for("save", true, "({namespace:string, name:string, code:string, ...})", "Persist and immediately register a trusted Lua function at namespace.name. code may be a function expression, a chunk that returns a function, or a named function declaration.", nil),
+  descriptor_for("delete", true, "(namespace, name)", "Delete a stored function from this runtime and persistence", nil),
+  descriptor_for("get", false, "(namespace, name)", "Get a stored function definition", nil),
+  descriptor_for("list", false, "()", "List stored function definitions", nil),
 }}

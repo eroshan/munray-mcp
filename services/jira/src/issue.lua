@@ -18,7 +18,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Issue object" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            readonly = true
+            guarded = false
         },
         {
             name = "list",
@@ -33,7 +33,7 @@ jira.issue.__schema = {
             returns_typed = {
                 { name = "iterator", type = "Iterator", description = "Iterator yielding Issue objects" }
             },
-            readonly = true
+            guarded = false
         },
         {
             name = "find",
@@ -48,7 +48,7 @@ jira.issue.__schema = {
             returns_typed = {
                 { name = "iterator", type = "Iterator", description = "Iterator yielding Issue objects" }
             },
-            readonly = true
+            guarded = false
         },
         {
             name = "create",
@@ -62,7 +62,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Created issue" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            readonly = false
+            guarded = true
         },
         {
             name = "update",
@@ -78,7 +78,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Updated issue (refreshed)" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            readonly = false
+            guarded = true
         },
         {
             name = "transition",
@@ -94,7 +94,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Transitioned issue (refreshed)" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            readonly = false
+            guarded = true
         },
         {
             name = "subtasks",
@@ -109,7 +109,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue[]", description = "Array of subtask issue objects" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            readonly = true
+            guarded = false
         },
         {
             name = "parent",
@@ -124,7 +124,7 @@ jira.issue.__schema = {
                 { name = "result", type = "Issue", description = "Parent issue object" },
                 { name = "err", type = "core.error|nil", description = "Error if failed (including if issue has no parent)" }
             },
-            readonly = true
+            guarded = false
         },
         {
             name = "hierarchy",
@@ -139,7 +139,7 @@ jira.issue.__schema = {
                 { name = "result", type = "IssueHierarchy", description = "Hierarchy structure with issue, parent, children, ancestors, descendants" },
                 { name = "err", type = "core.error|nil", description = "Error if failed" }
             },
-            readonly = true
+            guarded = false
         }
     },
 	types = {

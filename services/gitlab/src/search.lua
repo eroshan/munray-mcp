@@ -16,7 +16,7 @@ gitlab.search.__schema = {
 			signature = "(scope, query, opts)",
 			returns_contract = "core.iter",
 			yields = "SearchItem",
-			readonly = true,
+			guarded = false,
 			description = "Search within the five9 group across GitLab. Returns iterator; use helpers.collect() to materialize to array. Supported scopes: 'projects', 'blobs', 'merge_requests', 'commits', 'issues', 'milestones', 'users', 'wiki_blobs', 'notes'.",
 			params = {
 				{ name = "scope", type = "string", description = "Search scope: 'projects', 'blobs', 'merge_requests', 'commits', 'issues', 'milestones', 'users', 'wiki_blobs', 'notes'" },

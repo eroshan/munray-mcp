@@ -1,4 +1,9 @@
-use std::{collections::HashMap, fs, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    path::Path,
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, bail};
 use mlua::{HookTriggers, Lua, LuaOptions, LuaSerdeExt, MultiValue, StdLib, Value, VmState};
@@ -56,6 +61,49 @@ pub struct LuaRuntime {
 impl LuaRuntime {
     pub fn new(service_dir: Option<&Path>) -> Result<Self> {
         Self::build(service_dir, false, None, true)
+    }
+
+    /// Return the schema map produced by the trusted capabilities discovery.
+    /// This deliberately invokes introspection only; no provider operation runs.
+    pub fn discovered_schemas(&self) -> Result<BTreeMap<String, JsonValue>> {
+        let capabilities: mlua::Table = self.lua.globals().get("capabilities")?;
+        let raw: mlua::Function = capabilities.get("_raw_schemas")?;
+        let schemas: mlua::Table = raw.call(())?;
+        let mut result = BTreeMap::new();
+        for pair in schemas.pairs::<String, Value>() {
+            let (path, schema) = pair?;
+            let mut schema: JsonValue = self.lua.from_value(schema)?;
+            // Lua cannot distinguish `{}` as an empty map from an empty list.
+            // Schema list fields are unambiguous, so normalize only those fields
+            // for JSON consumers; ordinary Lua values retain their usual shape.
+            normalize_schema_empty_arrays(&mut schema);
+            result.insert(path, schema);
+        }
+        Ok(result)
+    }
+
+    /// Whether a dotted public path resolves to a Lua function.
+    pub fn is_callable_path(&self, path: &str) -> Result<bool> {
+        let mut value = Value::Table(self.lua.globals());
+        for part in path.split('.') {
+            let Value::Table(table) = value else {
+                return Ok(false);
+            };
+            value = table.get::<Value>(part)?;
+        }
+        Ok(matches!(value, Value::Function(_)))
+    }
+
+    pub fn global_field_json(&self, root: &str, field: &str) -> Result<Option<JsonValue>> {
+        let value = self.lua.globals().get::<Value>(root)?;
+        let Value::Table(table) = value else {
+            return Ok(None);
+        };
+        let value = table.get::<Value>(field)?;
+        if matches!(value, Value::Nil) {
+            return Ok(None);
+        }
+        Ok(Some(self.lua.from_value(value)?))
     }
 
     pub fn new_with_options(service_dir: Option<&Path>, test_runtime: bool) -> Result<Self> {
@@ -551,18 +599,18 @@ impl LuaRuntime {
                 let Some(name) = descriptor.get::<Option<String>>("name")? else {
                     continue;
                 };
-                if descriptor
-                    .get::<Option<bool>>("__mcp_server_wrapped")?
-                    .unwrap_or(false)
-                {
-                    continue;
-                }
+                // Registry membership is core-owned wrapper bookkeeping.  Do
+                // not annotate the service-owned schema descriptor: it is part
+                // of the public capability contract and must remain unchanged.
+                // A snippet replacement removes its path from this registry
+                // before calling this installer, allowing just that operation
+                // to be wrapped again.
                 // Operation paths are core-owned identities. Deriving them from the
                 // fully-qualified schema namespace keeps nested resources distinct and
                 // prevents service metadata from overriding metric/policy keys.
                 let operation = format!("{schema_namespace}.{name}");
                 if registry.lock().contains_key(&operation) {
-                    bail!("duplicate schema function path: {operation}");
+                    continue;
                 }
                 let Ok(original) = namespace.get::<mlua::Function>(name.as_str()) else {
                     continue;
@@ -628,7 +676,6 @@ impl LuaRuntime {
                     Ok(values)
                 })?;
                 namespace.set(name, wrapper)?;
-                descriptor.set("__mcp_server_wrapped", true)?;
                 registry.lock().insert(operation, registered);
             }
         }
@@ -1086,6 +1133,37 @@ fn collect_schema_namespaces(
         collect_schema_namespaces(child, seen, namespaces)?;
     }
     Ok(())
+}
+
+/// Normalize the Lua `{}` ambiguity only where the schema contract declares a
+/// list. Empty application tables must continue to encode as JSON objects.
+fn normalize_schema_empty_arrays(schema: &mut JsonValue) {
+    let Some(schema) = schema.as_object_mut() else {
+        return;
+    };
+    normalize_empty_object_as_array(schema, "functions");
+    normalize_empty_object_as_array(schema, "resources");
+    if let Some(functions) = schema
+        .get_mut("functions")
+        .and_then(JsonValue::as_array_mut)
+    {
+        for function in functions {
+            let Some(function) = function.as_object_mut() else {
+                continue;
+            };
+            normalize_empty_object_as_array(function, "params");
+            normalize_empty_object_as_array(function, "returns_typed");
+        }
+    }
+}
+
+fn normalize_empty_object_as_array(object: &mut JsonMap<String, JsonValue>, key: &str) {
+    if object
+        .get(key)
+        .is_some_and(|value| matches!(value, JsonValue::Object(entries) if entries.is_empty()))
+    {
+        object.insert(key.to_owned(), JsonValue::Array(Vec::new()));
+    }
 }
 
 fn lua_value_to_json(value: Value) -> Result<JsonValue> {

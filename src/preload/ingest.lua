@@ -24,7 +24,7 @@ print(text)
 			name = "get",
 			signature = "(token)",
 			returns_contract = "core.result",
-			readonly = true,
+			guarded = false,
 			description = "Read UTF-8 text for an ingest token previously stored in the current session.",
 			params = {
 				{ name = "token", type = "string", description = "Token returned by `munray-mcp ingest`" },

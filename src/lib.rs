@@ -12,4 +12,5 @@ pub mod services;
 pub mod stats;
 pub mod storage;
 mod tasks;
+mod validate;
 mod vfs;

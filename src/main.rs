@@ -69,6 +69,13 @@ async fn main() {
 async fn run() -> Result<()> {
     let mut cli = Cli::parse();
     cli.svc_dir = resolve_service_dir(cli.svc_dir);
+    // Validation has no persistence requirement: its runtime uses a temporary
+    // store, and base-only validation must work without HOME.
+    if matches!(cli.command, Some(Command::Validate)) {
+        let dir = cli.svc_dir.unwrap_or_else(|| PathBuf::from("services"));
+        services::validate(&dir)?;
+        return Ok(());
+    }
     cli.store_path = Some(resolve_store_path(cli.store_path)?);
     match cli.command {
         None | Some(Command::Run { file: None }) => {
@@ -98,12 +105,7 @@ async fn run() -> Result<()> {
             session,
             json,
         }) => run_ingest(&server, &session, json),
-        Some(Command::Validate) => {
-            let dir = require_service_dir(cli.svc_dir)?;
-            let count = services::validate(&dir)?;
-            println!("validated {count} service pack(s)");
-            Ok(())
-        }
+        Some(Command::Validate) => unreachable!("handled before store resolution"),
         Some(Command::Test) => run_service_tests(cli.svc_dir),
         Some(Command::ListSys) => {
             let runtime = LuaRuntime::new(None)?;

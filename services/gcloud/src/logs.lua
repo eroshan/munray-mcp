@@ -101,7 +101,7 @@ gcloud.logs.__schema = {
 				usage = "Returns a task_id handle. Use async_task.status(task_id) to poll, async_task.result(task_id) to fetch the result, or async_task.wait(task_id) to block until ready.",
 			},
 			description = "Start async retrieval of log entries from Cloud Logging. Returns a task_id string for later polling. Use async_task.wait(), async_task.status(), and async_task.result() to retrieve logs. The final result is a plain Lua array of LogEntry.",
-			readonly = true,
+			guarded = false,
 			params = {
 				{
 					name = "project",

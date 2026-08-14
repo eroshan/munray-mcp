@@ -20,6 +20,10 @@
     "summary": { "type": "string" },
     "description": { "type": "string" },
     "deprecated": { "type": "boolean" },
+    "usage_hint": {
+      "type": "string",
+      "description": "Compact guidance, permitted only on top-level namespaces."
+    },
 
     "functions": {
       "type": "array",

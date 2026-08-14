@@ -96,7 +96,7 @@ async_task.__schema = {
       name = "status",
       signature = "(task_id)",
       returns_contract = "core.result",
-      readonly = true,
+      guarded = false,
       params = {
         { name = "task_id", type = "string", description = "Task identifier" }
       },
@@ -114,7 +114,7 @@ async_task.__schema = {
       name = "result",
       signature = "(task_id, opts?)",
       returns_contract = "core.result",
-      readonly = true,
+      guarded = false,
       params = {
         { name = "task_id", type = "string", description = "Task identifier" },
         { name = "opts", type = "table", optional = true, description = "Options (reserved for future use)" }
@@ -142,7 +142,7 @@ return result
       name = "wait",
       signature = "(task_id, timeout_ms?)",
       returns_contract = "core.result",
-      readonly = true,
+      guarded = false,
       params = {
         { name = "task_id", type = "string", description = "Task identifier" },
         { name = "timeout_ms", type = "number", optional = true, description = "Timeout in milliseconds (default: 295000 = 4m55s)" }
