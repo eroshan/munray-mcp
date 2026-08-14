@@ -55,7 +55,8 @@ pub struct Report {
 
 #[derive(Deserialize)]
 struct PersistedEntry {
-    kind: String,
+    #[serde(alias = "kind")]
+    namespace: String,
     key: String,
     value: Value,
 }
@@ -81,7 +82,7 @@ fn collect_metrics(store_path: &Path) -> Result<HashMap<String, FunctionStat>> {
         .with_context(|| format!("failed to parse store {}", store_path.display()))?;
 
     for entry in entries {
-        if entry.kind != "metrics" {
+        if entry.namespace != "metrics" {
             continue;
         }
         let Some((path, metric)) = parse_metric_key(&entry.key) else {

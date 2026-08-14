@@ -227,12 +227,12 @@ fn mutating_tool_without_form_elicitation_capability_uses_source_fallback() {
 }
 
 #[test]
-fn mcp_rejects_raw_calls_outside_schema_context() {
+fn mcp_hides_raw_calls_from_session_code() {
     let input = [
         line(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})),
         line(json!({
             "jsonrpc":"2.0", "id":2, "method":"tools/call",
-            "params":{"name":"lua_runLuaScript","arguments":{"code":"local value, err = _raw.exec_mode(); return err.code"}}
+            "params":{"name":"lua_runLuaScript","arguments":{"code":"return _raw == nil"}}
         })),
     ].concat();
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
@@ -241,7 +241,7 @@ fn mcp_rejects_raw_calls_outside_schema_context() {
         .write_stdin(input)
         .assert()
         .success()
-        .stdout(predicates::str::contains("RAW_OUTSIDE_SCHEMA"));
+        .stdout(predicates::str::contains("true"));
 }
 
 #[test]

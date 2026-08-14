@@ -1,0 +1,109 @@
+{
+  "contracts": {
+    "core.async.result": {
+      "description": "Async start call: (task_id, err). Later: async_task.wait/result(task_id) -> (result, err).",
+      "example": "task_id, err = some.ns.expensive_op(opts)",
+      "pattern": "task_id, err = fn(...); if err then ... end; result, err = async_task.wait(task_id)"
+    },
+    "core.iter": {
+      "description": "Iterator; consume via for ... in ... or helpers.collect(iterator, {limit=N}) / helpers.take(iterator, N)",
+      "example": "items, err = helpers.collect(some.ns.list(opts), {limit = 10})",
+      "pattern": "items, err = helpers.collect(iterator, {limit = 10})"
+    },
+    "core.result": {
+      "description": "(val, err). Always check err first.",
+      "example": "diffs, err = gitlab.mr.diff(repo, iid, {})",
+      "pattern": "val, err = fn(...)"
+    },
+    "error": "{code:string, message:string, recoverable?:boolean, context?:table}"
+  },
+  "conventions": {
+    "ctx": "scope (repo, project_key, space_key)",
+    "data": "payload table {field=value}",
+    "id": "identifier (id, iid, key, sha)",
+    "opts": "filters/config table; optional args are marked with ?"
+  },
+  "discovery": {
+    "examples": "capabilities.examples(target)",
+    "invalidate": "capabilities.invalidate()",
+    "schema": "capabilities.schema(target)",
+    "target_format": {
+      "note": "Use target names from the namespaces listed in this response.",
+      "pattern": "<service> | <service>.<resource>"
+    }
+  },
+  "hints": {
+    "global": [
+      "Use capabilities.schema(target) for types/docs",
+      "Use capabilities.examples(target) for code",
+      "Ops ending with * are mutating; require mutating mode"
+    ],
+    "namespaces": {
+      "vfs": "Sandboxed runtime-local VFS, not host filesystem. Paths are VFS-relative; use vfs.expose() for host-visible temp copies."
+    }
+  },
+  "iter_helpers": [
+    "collect",
+    "first",
+    "take",
+    "skip",
+    "page"
+  ],
+  "namespaces": {
+    "async_task": {
+      "result": "(task_id, opts?) -> core.result",
+      "status": "(task_id) -> core.result",
+      "wait": "(task_id, timeout_ms?) -> core.result"
+    },
+    "helpers": {
+      "collect": "(iterator, opts) -> core.result",
+      "contains": "(str, substr) -> core.result",
+      "copy": "(t) -> core.result",
+      "filter": "(arr, pred) -> core.result",
+      "find": "(arr, pred) -> core.result",
+      "first": "(iterator) -> core.result",
+      "get_in": "(obj, path, default) -> core.result",
+      "keys": "(t) -> core.result",
+      "map": "(arr, fn) -> core.result",
+      "page": "(iterator, page_num, page_size) -> core.result",
+      "starts_with": "(str, prefix) -> core.result",
+      "take": "(iterator, n) -> core.result"
+    },
+    "ingest": {
+      "get": "(token) -> core.result"
+    },
+    "json": {
+      "decode": "(json_string) -> core.result",
+      "encode": "(value, [pretty]) -> core.result"
+    },
+    "kv": {
+      "clear": "(namespace)* -> core.result",
+      "delete": "(namespace, key)* -> core.result",
+      "get": "(namespace, key) -> core.result",
+      "keys": "(namespace) -> core.result",
+      "len": "(namespace) -> core.result",
+      "put": "(namespace, key, value)* -> core.result"
+    },
+    "snippets": {
+      "delete": "(path)* -> core.result",
+      "get": "(path) -> core.result",
+      "list": "() -> core.result",
+      "save": "(definition)* -> core.result"
+    },
+    "vfs": {
+      "ensure_parent": "(path) -> core.result",
+      "expose": "(paths)* -> core.result",
+      "ls": "(path, opts?) -> core.result",
+      "mkdirp": "(path) -> core.result",
+      "read_text": "(path, opts?) -> core.result",
+      "stat": "(path) -> core.result",
+      "to_txt": "(path, opts?) -> core.result",
+      "write_text": "(path, text, opts?) -> core.result"
+    },
+    "yaml": {
+      "decode": "(yaml_string) -> core.result",
+      "encode": "(value, [pretty]) -> core.result"
+    }
+  },
+  "runtime": []
+}
