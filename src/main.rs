@@ -5,11 +5,11 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use mcp_server::{
     mcp::McpServer,
     runtime::{ExecutionMode, LuaRuntime, read_script},
-    services,
+    services, sys_catalog,
 };
 use rmcp::{ServiceExt, transport::stdio};
 
@@ -75,7 +75,21 @@ enum Command {
 #[derive(Subcommand)]
 enum SysCommand {
     /// List internal system primitives provided to service packs.
-    List,
+    List {
+        /// Output representation. JSON is a stable machine-readable catalog.
+        #[arg(long, value_enum, default_value_t = SysListFormat::Text)]
+        format: SysListFormat,
+        /// Maximum line width for text output.
+        #[arg(long, default_value_t = 120)]
+        width: usize,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum SysListFormat {
+    Text,
+    Markdown,
+    Json,
 }
 
 #[derive(Subcommand)]
@@ -164,15 +178,14 @@ async fn run() -> Result<()> {
         Some(Command::Svc { .. }) => unreachable!("handled before store resolution"),
         Some(Command::Test) => run_service_tests(cli.svc_dir),
         Some(Command::Sys {
-            command: SysCommand::List,
+            command: SysCommand::List { format, width },
         }) => {
             let runtime = LuaRuntime::new(None)?;
-            println!("Available sys.* primitives:");
-            for (namespace, functions) in runtime.list_sys_primitives()? {
-                println!("\n{namespace}:");
-                for function in functions {
-                    println!("  {namespace}.{function}");
-                }
+            let catalog = sys_catalog::build(runtime.list_sys_primitives()?);
+            match format {
+                SysListFormat::Text => print!("{}", sys_catalog::render_text(&catalog, width)),
+                SysListFormat::Markdown => print!("{}", sys_catalog::render_markdown(&catalog)),
+                SysListFormat::Json => println!("{}", serde_json::to_string_pretty(&catalog)?),
             }
             Ok(())
         }

@@ -309,6 +309,8 @@ The implementation is Rust; `sys.*` is available only while trusted pack code is
 
 For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `sys.*` calls are also allowed in local CLI execution and `munray test` for debugging and service-pack tests.
 
+Use `munray sys list` for the runtime-reflected primitive catalog. Its default indented text output is intended for terminal use; `--format markdown` and `--format json` render the same catalog for documentation and tooling. Reflection is authoritative for whether a primitive is present in the runtime; core metadata supplies signatures and descriptions that opaque Lua functions cannot expose.
+
 - Execution mode:
   - `sys.exec_mode() -> "readonly"|"guarded"` (introspection only; do not use for Lua-side permission checks)
 - CLI (sync):

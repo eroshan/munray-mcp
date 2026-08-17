@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use mcp_server::{runtime::LuaRuntime, sys_catalog};
 use predicates::prelude::*;
 use std::fs;
 
@@ -168,17 +169,81 @@ fn bootstrap_service_rejects_non_lua_service_names() {
 }
 
 #[test]
-fn list_sys_enumerates_registered_primitives() {
+fn list_sys_renders_documented_primitives_in_text() {
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["sys", "list", "--format", "text"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("sys.http\n    HTTP requests"))
+        .stdout(predicate::str::contains(
+            "    request(method string, base_url string, path string, opts? table) -> table",
+        ))
+        .stdout(predicate::str::contains(
+            "sys.graphql\n    GraphQL requests",
+        ))
+        .stdout(predicate::str::contains(
+            "    start_request(base_url string, document string, opts? table) -> task_id",
+        ))
+        .stdout(predicate::str::contains(
+            "sys.kv\n    Durable key-value storage",
+        ))
+        .stdout(predicate::str::contains(
+            "    put(namespace string, key string, value any, opts? table) -> boolean",
+        ))
+        .stdout(predicate::str::contains(
+            "sys.snippets\n    Persisted snippets",
+        ));
+}
+
+#[test]
+fn list_sys_defaults_to_text() {
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .args(["sys", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("sys.http.request"))
-        .stdout(predicate::str::contains("sys.http.start_request"))
-        .stdout(predicate::str::contains("sys.graphql.start_request"))
-        .stdout(predicate::str::contains("sys.kv.put"))
-        .stdout(predicate::str::contains("sys.snippets.save"));
+        .stdout(predicate::str::starts_with("sys\n    Runtime helpers\n"))
+        .stdout(predicate::str::contains("    exec_mode() -> string\n"));
+}
+
+#[test]
+fn list_sys_can_render_markdown() {
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["sys", "list", "--format", "markdown"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("## `sys` — Runtime helpers\n"))
+        .stdout(predicate::str::contains("| Function | Description |"));
+}
+
+#[test]
+fn sys_metadata_matches_reflected_primitives() {
+    let runtime = LuaRuntime::new(None).unwrap();
+    let reflected = runtime.list_sys_primitives().unwrap();
+    assert!(
+        sys_catalog::undocumented_paths(&reflected).is_empty(),
+        "reflected primitives missing metadata: {:?}",
+        sys_catalog::undocumented_paths(&reflected)
+    );
+    assert!(
+        sys_catalog::stale_paths(&reflected).is_empty(),
+        "metadata without a reflected primitive: {:?}",
+        sys_catalog::stale_paths(&reflected)
+    );
+}
+
+#[test]
+fn list_sys_json_is_machine_readable() {
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["sys", "list", "--format", "json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"version\": 1"))
+        .stdout(predicate::str::contains("\"path\": \"sys.http\""))
+        .stdout(predicate::str::contains("\"path\": \"sys.http.request\""));
 }
 
 #[test]

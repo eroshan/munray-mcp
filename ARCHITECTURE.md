@@ -89,7 +89,7 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 | `svc uninstall <name> --force` | Remove a service-pack directory after explicit confirmation. |
 | `test` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. |
 | `ingest` | Send UTF-8 stdin to an already-created MCP session through its Unix socket. |
-| `sys list` | Construct a runtime and enumerate registered `sys.*` functions. |
+| `sys list` | Construct a runtime, reflect registered `sys.*` functions, enrich them with core metadata, and render the catalog. Indented text is the default; `--format markdown` and `--format json` provide alternate representations. |
 | `stats` | Combine available schema paths with metrics found in the durable store. |
 
 CLI execution permits direct `sys.*` calls and uses guarded mode. Service tests permit direct raw calls, retain the full standard library, and initially use read-only mode.

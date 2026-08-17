@@ -11,6 +11,7 @@ mod secrets;
 pub mod services;
 pub mod stats;
 pub mod storage;
+pub mod sys_catalog;
 mod tasks;
 mod validate;
 mod vfs;
