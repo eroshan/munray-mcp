@@ -44,14 +44,6 @@ enum Command {
     Mcp,
     /// Validate that all service-pack Lua modules load.
     Validate,
-    /// Create a safe, schema-valid service-pack skeleton.
-    BootstrapService {
-        /// Lua namespace and directory name (lowercase letters, digits, and underscores).
-        name: String,
-        /// Replace files in an existing service directory.
-        #[arg(long)]
-        force: bool,
-    },
     /// Push UTF-8 stdin into an existing MCP session.
     Ingest {
         #[arg(long)]
@@ -63,12 +55,38 @@ enum Command {
     },
     /// Run Lua tests found under service-pack tests directories.
     Test,
-    /// List internal system primitives provided to service packs.
-    ListSys,
     /// Report wrapped public function availability and usage metrics.
     Stats {
         #[arg(long)]
         json: bool,
+    },
+    /// List internal system primitives provided to service packs.
+    Sys {
+        #[command(subcommand)]
+        command: SysCommand,
+    },
+    /// Manage service packs.
+    Svc {
+        #[command(subcommand)]
+        command: SvcCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum SysCommand {
+    /// List internal system primitives provided to service packs.
+    List,
+}
+
+#[derive(Subcommand)]
+enum SvcCommand {
+    /// Create a safe, schema-valid service-pack skeleton.
+    Bootstrap {
+        /// Lua namespace and directory name (lowercase letters, digits, and underscores).
+        name: String,
+        /// Replace files in an existing service directory.
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -90,7 +108,10 @@ async fn run() -> Result<()> {
         services::validate(&dir)?;
         return Ok(());
     }
-    if let Some(Command::BootstrapService { name, force }) = &cli.command {
+    if let Some(Command::Svc {
+        command: SvcCommand::Bootstrap { name, force },
+    }) = &cli.command
+    {
         bootstrap_service(cli.svc_dir.as_deref(), name, *force)?;
         return Ok(());
     }
@@ -125,9 +146,11 @@ async fn run() -> Result<()> {
             json,
         }) => run_ingest(&server, &session, json),
         Some(Command::Validate) => unreachable!("handled before store resolution"),
-        Some(Command::BootstrapService { .. }) => unreachable!("handled before store resolution"),
+        Some(Command::Svc { .. }) => unreachable!("handled before store resolution"),
         Some(Command::Test) => run_service_tests(cli.svc_dir),
-        Some(Command::ListSys) => {
+        Some(Command::Sys {
+            command: SysCommand::List,
+        }) => {
             let runtime = LuaRuntime::new(None)?;
             println!("Available sys.* primitives:");
             for (namespace, functions) in runtime.list_sys_primitives()? {

@@ -84,10 +84,10 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 | default / `run [file]` | Execute stdin or a file in a new runtime, in guarded mode. There is no interactive REPL. |
 | `mcp` | Serve MCP over stdin/stdout and, on Unix, start the local ingest socket. |
 | `validate` | Constructs a temporary runtime, forces schema discovery and validation, and reports the service-pack directories actually loaded. Nested `init.lua` files are reported as modules, not packs. |
-| `bootstrap-service <name>` | Create the schema-valid service-pack skeleton from compiled assets in the configured service directory. Refuses to overwrite an existing pack unless `--force` is supplied. |
+| `svc bootstrap <name>` | Create the schema-valid service-pack skeleton from compiled assets in the configured service directory. Refuses to overwrite an existing pack unless `--force` is supplied. |
 | `test` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. |
 | `ingest` | Send UTF-8 stdin to an already-created MCP session through its Unix socket. |
-| `list-sys` | Construct a runtime and enumerate registered `sys.*` functions. |
+| `sys list` | Construct a runtime and enumerate registered `sys.*` functions. |
 | `stats` | Combine available schema paths with metrics found in the durable store. |
 
 CLI execution permits direct `sys.*` calls and uses guarded mode. Service tests permit direct raw calls, retain the full standard library, and initially use read-only mode.

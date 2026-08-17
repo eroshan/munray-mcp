@@ -12,9 +12,27 @@ fn help_lists_supported_commands() {
         .stdout(predicate::str::contains("mcp"))
         .stdout(predicate::str::contains("run"))
         .stdout(predicate::str::contains("validate"))
-        .stdout(predicate::str::contains("bootstrap-service"))
+        .stdout(predicate::str::contains("sys"))
+        .stdout(predicate::str::contains("svc"))
+        .stdout(predicate::str::contains("help"))
         .stdout(predicate::str::contains("test"))
         .stdout(predicate::str::contains("stats"));
+}
+
+#[test]
+fn sys_and_svc_expose_their_nested_subcommands() {
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["sys", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("list"));
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["svc", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("bootstrap"));
 }
 
 #[test]
@@ -27,7 +45,8 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
         .args([
             "--svc-dir",
             service_dir,
-            "bootstrap-service",
+            "svc",
+            "bootstrap",
             "example_service",
         ])
         .assert()
@@ -57,7 +76,8 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
         .args([
             "--svc-dir",
             service_dir,
-            "bootstrap-service",
+            "svc",
+            "bootstrap",
             "example_service",
         ])
         .assert()
@@ -70,7 +90,8 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
         .args([
             "--svc-dir",
             service_dir,
-            "bootstrap-service",
+            "svc",
+            "bootstrap",
             "example_service",
             "--force",
         ])
@@ -91,7 +112,8 @@ fn bootstrap_service_rejects_non_lua_service_names() {
         .args([
             "--svc-dir",
             services.path().to_str().unwrap(),
-            "bootstrap-service",
+            "svc",
+            "bootstrap",
             "not-valid",
         ])
         .assert()
@@ -103,7 +125,7 @@ fn bootstrap_service_rejects_non_lua_service_names() {
 fn list_sys_enumerates_registered_primitives() {
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .arg("list-sys")
+        .args(["sys", "list"])
         .assert()
         .success()
         .stdout(predicate::str::contains("sys.http.request"))
