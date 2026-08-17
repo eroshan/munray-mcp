@@ -480,15 +480,7 @@ Rust integration tests under `tests/` exercise CLI behavior, MCP tools and sessi
 
 Service tests are found by recursively scanning for Lua files with a `tests` path component. Each file receives a fresh runtime. Files are not explicitly sorted by the runner, walk errors are ignored, and test success ultimately depends on the Lua file raising an error (usually through `test.summary`) when assertions fail.
 
-## 15. Proposed architectural improvements
-
-This section is a review backlog, not current behavior.
-
-### P2 — Harden resources and observability
-
-Completed: pooled and capped HTTP transport with optional HTTP envelopes; in-process quota-bound ZIP inspection; aggregate VFS/blob caps; stable MCP execution-error envelopes; redacted-by-default execution logs with explicit failure policy; bounded/pruned command-secret lookup and runtime-owned SQLite connections; and architecture-focused sandbox, session ordering, timeout, VFS, persistence, and metrics tests.
-
-## 16. Maintaining this document
+## 15. Maintaining this document
 
 When core behavior changes:
 
