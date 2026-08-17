@@ -32,7 +32,9 @@ fn sys_and_svc_expose_their_nested_subcommands() {
         .args(["svc", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("bootstrap"));
+        .stdout(predicate::str::contains("bootstrap"))
+        .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("uninstall"));
 }
 
 #[test]
@@ -102,6 +104,50 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
             .unwrap()
             .contains("example_service")
     );
+}
+
+#[test]
+fn svc_lists_and_uninstalls_service_packs() {
+    let services = tempfile::tempdir().unwrap();
+    let service_dir = services.path().to_str().unwrap();
+    let pack = services.path().join("example_service");
+    fs::create_dir_all(pack.join("src")).unwrap();
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["--svc-dir", service_dir, "svc", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("example_service"));
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args([
+            "--svc-dir",
+            service_dir,
+            "svc",
+            "uninstall",
+            "example_service",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("pass --force"));
+    assert!(pack.exists());
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args([
+            "--svc-dir",
+            service_dir,
+            "svc",
+            "uninstall",
+            "example_service",
+            "--force",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Removed"));
+    assert!(!pack.exists());
 }
 
 #[test]

@@ -88,6 +88,16 @@ enum SvcCommand {
         #[arg(long)]
         force: bool,
     },
+    /// List installed service packs.
+    List,
+    /// Remove an installed service pack.
+    Uninstall {
+        /// Lua namespace and directory name of the service pack to remove.
+        name: String,
+        /// Confirm removal of the service pack directory.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[tokio::main]
@@ -108,11 +118,16 @@ async fn run() -> Result<()> {
         services::validate(&dir)?;
         return Ok(());
     }
-    if let Some(Command::Svc {
-        command: SvcCommand::Bootstrap { name, force },
-    }) = &cli.command
-    {
-        bootstrap_service(cli.svc_dir.as_deref(), name, *force)?;
+    if let Some(Command::Svc { command }) = &cli.command {
+        match command {
+            SvcCommand::Bootstrap { name, force } => {
+                bootstrap_service(cli.svc_dir.as_deref(), name, *force)?;
+            }
+            SvcCommand::List => list_services(cli.svc_dir.as_deref())?,
+            SvcCommand::Uninstall { name, force } => {
+                uninstall_service(cli.svc_dir.as_deref(), name, *force)?;
+            }
+        }
         return Ok(());
     }
     cli.store_path = Some(resolve_store_path(cli.store_path)?);
@@ -215,6 +230,65 @@ fn bootstrap_service(service_dir: Option<&Path>, name: &str, force: bool) -> Res
         COMMAND_NAME,
         service_dir.display()
     );
+    Ok(())
+}
+
+fn list_services(service_dir: Option<&Path>) -> Result<()> {
+    let service_dir = require_service_dir(service_dir.map(Path::to_path_buf))?;
+    if !service_dir.exists() {
+        println!("No service packs found in {}", service_dir.display());
+        return Ok(());
+    }
+    if !service_dir.is_dir() {
+        bail!("service path {} is not a directory", service_dir.display());
+    }
+
+    let mut packs = Vec::new();
+    for entry in fs::read_dir(&service_dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.')
+            || !entry.file_type()?.is_dir()
+            || !entry.path().join("src").is_dir()
+        {
+            continue;
+        }
+        packs.push(name);
+    }
+    packs.sort();
+    if packs.is_empty() {
+        println!("No service packs found in {}", service_dir.display());
+    } else {
+        println!("Service packs in {}:", service_dir.display());
+        for pack in packs {
+            println!("  {pack}");
+        }
+    }
+    Ok(())
+}
+
+fn uninstall_service(service_dir: Option<&Path>, name: &str, force: bool) -> Result<()> {
+    if !is_service_name(name) {
+        bail!(
+            "invalid service name {name:?}: use lowercase ASCII letters, digits, and underscores; the first character must be a letter"
+        );
+    }
+    let service_dir = require_service_dir(service_dir.map(Path::to_path_buf))?;
+    let pack_dir = service_dir.join(name);
+    if !pack_dir.exists() {
+        bail!("service pack {} does not exist", pack_dir.display());
+    }
+    if !pack_dir.is_dir() {
+        bail!("service path {} is not a directory", pack_dir.display());
+    }
+    if !force {
+        bail!(
+            "refusing to remove service pack {}; pass --force to confirm",
+            pack_dir.display()
+        );
+    }
+    fs::remove_dir_all(&pack_dir)?;
+    println!("Removed {}", pack_dir.display());
     Ok(())
 }
 

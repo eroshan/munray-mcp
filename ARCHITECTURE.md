@@ -85,6 +85,8 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 | `mcp` | Serve MCP over stdin/stdout and, on Unix, start the local ingest socket. |
 | `validate` | Constructs a temporary runtime, forces schema discovery and validation, and reports the service-pack directories actually loaded. Nested `init.lua` files are reported as modules, not packs. |
 | `svc bootstrap <name>` | Create the schema-valid service-pack skeleton from compiled assets in the configured service directory. Refuses to overwrite an existing pack unless `--force` is supplied. |
+| `svc list` | List service-pack directories with a `src` directory in the configured service directory. |
+| `svc uninstall <name> --force` | Remove a service-pack directory after explicit confirmation. |
 | `test` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. |
 | `ingest` | Send UTF-8 stdin to an already-created MCP session through its Unix socket. |
 | `sys list` | Construct a runtime and enumerate registered `sys.*` functions. |
