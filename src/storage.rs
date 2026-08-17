@@ -1,8 +1,8 @@
 use std::{
     collections::HashMap,
     fs,
-    path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    path::Path,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -17,7 +17,6 @@ use crate::runtime::lua_error;
 
 const MAX_NAME_BYTES: usize = 1_024;
 const MAX_SOURCE_BYTES: usize = 10 * 1024 * 1024;
-static STORES: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<Connection>>>>> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct Store {
@@ -45,8 +44,11 @@ impl Store {
     /// A missing path is intentionally an isolated in-memory store for library
     /// runtimes. The CLI and MCP server always supply their resolved DB path.
     pub fn open(path: Option<&Path>) -> Result<Self> {
+        // Store ownership is runtime/application scoped. SQLite WAL handles
+        // cross-runtime and cross-process coordination without an unbounded
+        // process-global connection registry.
         let connection = match path {
-            Some(path) => persistent_connection(path)?,
+            Some(path) => Arc::new(Mutex::new(open_connection(Some(path))?)),
             None => Arc::new(Mutex::new(open_connection(None)?)),
         };
         Ok(Self { connection })
@@ -278,23 +280,6 @@ fn snippet_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snippet> {
     })
 }
 
-fn persistent_connection(path: &Path) -> Result<Arc<Mutex<Connection>>> {
-    if path.as_os_str().is_empty() {
-        bail!("store path is empty")
-    }
-    let path = absolute_path(path)?;
-    let stores = STORES.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(connection) = stores.lock().get(&path).cloned() {
-        return Ok(connection);
-    }
-    let connection = Arc::new(Mutex::new(open_connection(Some(&path))?));
-    Ok(stores
-        .lock()
-        .entry(path)
-        .or_insert_with(|| Arc::clone(&connection))
-        .clone())
-}
-
 fn open_connection(path: Option<&Path>) -> Result<Connection> {
     if let Some(path) = path {
         if let Some(parent) = path.parent() {
@@ -446,14 +431,6 @@ fn legacy_json(value: &str) -> Result<JsonValue> {
 
 fn legacy_text(value: &str) -> Result<String> {
     Ok(legacy_json(value)?.as_str().unwrap_or(value).to_owned())
-}
-
-fn absolute_path(path: &Path) -> Result<PathBuf> {
-    Ok(if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()?.join(path)
-    })
 }
 
 fn validate_name(label: &str, value: &str) -> Result<()> {

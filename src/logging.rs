@@ -40,6 +40,9 @@ pub struct Stats {
 pub struct Logger {
     path: PathBuf,
     writer: Arc<Mutex<()>>,
+    /// Raw execution data is opt-in because code, output, and values commonly
+    /// contain bearer tokens and credentials.
+    include_sensitive: bool,
 }
 
 impl Logger {
@@ -54,12 +57,19 @@ impl Logger {
         Ok(Self {
             path: directory.join("executions.jsonl"),
             writer: Arc::new(Mutex::new(())),
+            include_sensitive: std::env::var("MUNRAY_MCP_LOG_RAW").ok().as_deref() == Some("1"),
         })
     }
 
     pub fn log(&self, mut entry: ExecutionEntry) -> Result<()> {
         if entry.timestamp_ms == 0 {
             entry.timestamp_ms = now_ms();
+        }
+        if !self.include_sensitive {
+            entry.code = "[redacted; set MUNRAY_MCP_LOG_RAW=1 to include execution data]".into();
+            entry.output = "[redacted]".into();
+            entry.result = Value::String("[redacted]".into());
+            entry.error = entry.error.map(|_| "[redacted]".into());
         }
         let encoded = serde_json::to_vec(&entry)?;
         let _guard = self.writer.lock();

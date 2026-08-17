@@ -258,7 +258,9 @@ impl McpServer {
             session_ttl: Duration::from_secs(30 * 60),
             logger: logs_dir
                 .as_deref()
-                .and_then(|path| crate::logging::Logger::new(path).ok()),
+                .map(crate::logging::Logger::new)
+                .transpose()
+                .map_err(|error| format!("failed to initialize execution logging: {error}"))?,
             instructions,
         })
     }
@@ -369,25 +371,27 @@ impl McpServer {
                     runtime.execute_with_timeout(&request.code, mode, "<mcp>", Some(timeout));
                 (execution, runtime.captured_output())
             };
-            let (output, result, error) = match execution {
+            let (output, result, error_message) = match execution {
                 Ok(value) => (value.output, value.result, None),
                 Err(error) => (captured_output, Value::Null, Some(format!("{error:#}"))),
             };
+            let error = error_message.as_ref().map(|message| {
+                json!({"code":"EXECUTION_FAILED","message":message,"recoverable":false,"context":{}})
+            });
             if let Some(logger) = logger {
-                let _ = logger.log(crate::logging::ExecutionEntry {
+                logger.log(crate::logging::ExecutionEntry {
                     timestamp_ms: crate::logging::now_ms(),
                     session_id: session_id.clone(),
                     mode: match mode {
                         ExecutionMode::ReadOnly => "readonly",
                         ExecutionMode::Guarded => "guarded",
-                    }
-                    .into(),
+                    }.into(),
                     code: request.code,
                     output: output.clone(),
                     result: result.clone(),
-                    error: error.clone(),
+                    error: error_message.clone(),
                     duration_ms: started.elapsed().as_millis(),
-                });
+                }).map_err(|error| format!("execution completed but logging failed: {error}"))?;
             }
             serde_json::to_string_pretty(
                 &json!({"session_id":session_id,"output":output,"result":result,"error":error}),

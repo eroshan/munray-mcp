@@ -56,6 +56,7 @@ pub struct LuaRuntime {
     mode: Arc<Mutex<ExecutionMode>>,
     store: crate::storage::Store,
     allowed_cli: Arc<Mutex<Vec<String>>>,
+    secret_lifetime: Arc<std::sync::atomic::AtomicBool>,
     raw_authorization: Arc<Mutex<RawAuthorization>>,
     function_registry: Arc<Mutex<HashMap<String, RegisteredFunction>>>,
     metric_buffer: Arc<Mutex<HashMap<String, f64>>>,
@@ -66,6 +67,16 @@ pub struct LuaRuntime {
     ingest: crate::ingest::IngestStore,
     tasks: crate::tasks::Manager,
     loaded_services: crate::services::LoadReport,
+}
+
+impl Drop for LuaRuntime {
+    fn drop(&mut self) {
+        // Command secret entries hold only weak runtime state; pruning here
+        // gives session eviction deterministic registry cleanup.
+        self.secret_lifetime
+            .store(false, std::sync::atomic::Ordering::Release);
+        crate::secrets::cleanup();
+    }
 }
 
 impl LuaRuntime {
@@ -167,6 +178,7 @@ impl LuaRuntime {
             mode: Arc::new(Mutex::new(ExecutionMode::ReadOnly)),
             store: store.clone(),
             allowed_cli: Arc::new(Mutex::new(Vec::new())),
+            secret_lifetime: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             raw_authorization: Arc::new(Mutex::new(RawAuthorization {
                 bootstrap: true,
                 direct_allowed: false,
@@ -269,7 +281,12 @@ impl LuaRuntime {
             }
         }
 
-        crate::secrets::register(&self.lua, &raw_table, Arc::clone(&self.allowed_cli))?;
+        crate::secrets::register(
+            &self.lua,
+            &raw_table,
+            Arc::clone(&self.allowed_cli),
+            Arc::clone(&self.secret_lifetime),
+        )?;
 
         let auth: mlua::Table = raw_table.get("auth")?;
         auth.set(
@@ -969,7 +986,8 @@ impl LuaRuntime {
         self.ingest.store(text).map_err(anyhow::Error::msg)
     }
 
-    pub(crate) fn captured_output(&self) -> String {
+    /// Captured print output, including output produced before a failed execution.
+    pub fn captured_output(&self) -> String {
         self.output.lock().clone()
     }
 

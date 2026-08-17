@@ -129,8 +129,8 @@ Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. 
 
 | Scope | State | Lifetime and sharing |
 | --- | --- | --- |
-| Process-global | SQLite connection registry | Maps absolute database paths to one mutex-protected reusable SQLite connection. All runtimes in one process using the same path share it. |
-| Process-global | command-secret registry | Maps generated IDs to command-secret definitions. Entries are not currently removed. |
+| Runtime/application | SQLite connection | Each runtime owns its mutex-protected SQLite connection. WAL coordinates concurrent runtimes and processes; dropping the runtime closes its connection. |
+| Process-global (bounded compatibility lookup) | command-secret registry | Holds at most 1,024 active command-secret definitions and prunes weak references when a runtime is dropped. |
 | `McpServer` | session map, service/store paths, TTL, optional logger | Shared across cloned server handlers. |
 | `Session` | one mutex-protected `LuaRuntime`, per-session FIFO queue, last-used time | Retained in the server map until lazily evicted; eviction cancels runtime tasks. |
 | `LuaRuntime` | Lua VM, output, mode, immutable function registry, Rust raw-authorization state, optional session environment, CLI allowlist, VFS, blobs, ingest | One per CLI invocation, service test, or MCP session. |
@@ -251,7 +251,7 @@ Normal tool execution returns a text content item containing pretty-printed JSON
 }
 ```
 
-An uncaught execution failure is generally encoded as a string in `error` while the tool call itself remains successful at the MCP protocol layer. Empty code and some pre-execution failures return an MCP tool error instead.
+An uncaught execution failure is encoded in the stable `error` envelope (`code`, `message`, `recoverable`, and `context`) while the tool call retains its response payload. Empty code and pre-execution/logging failures return an MCP tool error.
 
 ## 9. Lua execution, deadlines, and value conversion
 
@@ -333,7 +333,7 @@ The raw CLI and command-secret implementations require exact command-name member
 | `sys.task` | `status`, `result`, `wait`, `cancel` |
 | `sys.test` | `set_mode`, `start_task` |
 | `sys.url` | query/path escape and unescape |
-| `sys.vfs` | `mkdirp`, text/blob write, text read, `stat`, `list`, `to_text`, `expose` |
+| `sys.vfs` | `mkdirp`, `remove`, text/blob write, text read, `stat`, `list`, `to_text`, `expose` |
 
 Public core namespaces include `json`, `yaml`, `helpers`, `store`, `async_task`, `vfs`, and `ingest`; discovery is exposed through the global `ctx_init`, `schema`, and `examples` functions. `errutil` is intentionally internal and has no schema.
 
@@ -345,7 +345,7 @@ Text mode decodes stdout lossily as UTF-8. JSON mode parses stdout as JSON. Nonz
 
 ### 11.3 HTTP and GraphQL
 
-The transport uses a new blocking `reqwest::Client` per request. HTTP options support query values, JSON body, map or ordered-list headers, auth references, and timeout.
+The transport reuses one blocking `reqwest::Client` connection pool; each request sets its own timeout. HTTP options support query values, JSON body, map or ordered-list headers, auth references, and timeout. Normal JSON responses are capped at 16 MiB by default and 64 MiB maximum through `max_response_bytes`; `response_mode="http_envelope"` returns status, headers, and decoded body.
 
 HTTP behavior includes:
 
@@ -358,7 +358,7 @@ HTTP behavior includes:
 
 HTTP pagination is lazy and supports `page`, `offset`, opaque `token`, and same-origin cursor-link modes. Cursor links must preserve scheme, host, port, and configured base-path prefix.
 
-GraphQL uses HTTP POST and supports data or envelope response mode plus cursor/offset pagination. The current envelope is the decoded GraphQL response body; it does not add HTTP status/header metadata. A non-empty GraphQL `errors` array becomes a generic `GRAPHQL_ERROR`; error details and partial data are not preserved.
+GraphQL uses HTTP POST and supports data or envelope response mode plus cursor/offset pagination. The GraphQL envelope is the decoded GraphQL response body; callers requiring transport metadata can use HTTP's `http_envelope` response mode. A non-empty GraphQL `errors` array becomes `GRAPHQL_ERROR` whose message retains the returned errors and partial data.
 
 ### 11.4 Background tasks
 
@@ -386,17 +386,17 @@ Command-secret rules:
 - successful stdout is trimmed, must be non-empty UTF-8, and is cached for `ttl_s` (default one hour); and
 - a command-backed bearer cache is invalidated once after HTTP 401.
 
-The process-global command registry has no cleanup. It retains definitions after their runtime expires, although a weak allowlist reference prevents successful resolution after runtime destruction.
+The bounded command registry is pruned when a runtime drops; stale weak-allowlist definitions are removed deterministically and cannot resolve after runtime destruction.
 
 ### 11.6 VFS and blobs
 
 Each runtime owns a temporary VFS root. VFS paths must be non-empty, relative, free of parent/root/prefix components, and limited to ASCII alphanumerics plus `.`, `_`, `/`, and `-`.
 
-The VFS provides directory creation, text/blob writes, text reads, metadata, recursive/nonrecursive listing, ZIP extraction/previews, and exposure bundles. Directory and text-write mutations (`mkdirp`, `ensure_parent`, and `write_text`) and `vfs.expose` are guarded operations; reads and inspection remain read-only.
+The VFS provides directory creation/removal, text/blob writes, text reads, metadata, recursive/nonrecursive listing, ZIP extraction/previews, and exposure bundles. Directory, removal, and text-write mutations (`mkdirp`, `ensure_parent`, `remove`, and `write_text`) and `vfs.expose` are guarded operations; reads and inspection remain read-only.
 
-ZIP conversion shells out to `unzip` without the service CLI allowlist or execution deadline. It limits the number of files and preview bytes but not total extracted bytes, so archive expansion can consume substantial memory/disk. Exposure bundles remain alive until the runtime drops.
+ZIP conversion uses the in-process `zip` reader. It rejects unsafe paths and enforces 1,000 entries, 100 MiB expanded bytes, a 100:1 compression-ratio limit, the active execution deadline between entries, preview limits, and the runtime VFS quota. Exposure bundles remain alive until the runtime drops.
 
-Blob bytes are held in an in-memory map and represented in Lua by userdata. The default per-capture limit is 200 MiB, but callers can request a different limit. There is no aggregate blob quota or eviction.
+Blob bytes are held in an in-memory map and represented in Lua by userdata. The default per-capture limit is 200 MiB and a runtime-wide 512 MiB aggregate cap returns `BLOB_QUOTA_EXCEEDED`. VFS writes and ZIP extraction enforce a 512 MiB aggregate cap and return `VFS_QUOTA_EXCEEDED`; guarded `vfs.remove` reclaims VFS quota, and all runtime-local VFS/blob state is released at runtime teardown.
 
 ### 11.7 Ingest and local IPC
 
@@ -444,11 +444,7 @@ Metric increments are buffered by a runtime for one Lua execution, then atomical
 
 When enabled, execution logging appends JSON lines to `<logs-dir>/executions.jsonl`. Each entry includes timestamp, session, mode, full Lua code, output, result, error, and duration. Unix creation modes are `0700` for a newly-created directory and `0600` for the file.
 
-Telemetry contains unredacted code and values and can therefore contain secrets. Logger behavior also differs by surface:
-
-- CLI logger creation/write errors propagate, but only successful executions are logged;
-- MCP logger creation failure silently disables logging; and
-- MCP log-write failures are ignored.
+Telemetry redacts code, output, result, and error values by default. Set `MUNRAY_MCP_LOG_RAW=1` only for an explicitly trusted diagnostic environment. Logger creation and write failures propagate on both CLI and MCP, and CLI logs failed executions after preserving their captured output.
 
 The logger mutex is per `Logger` instance; it is not an inter-process file lock.
 
@@ -458,7 +454,7 @@ Expected raw/public failures generally use `(nil, err)` with `code`, `message`, 
 
 Iterator transport failures are thrown from the raw iterator. Helper consumers catch them and coerce them to a public `ITERATION_FAILED` shape.
 
-Uncaught Lua/embedding errors are `anyhow` strings. MCP places the formatted string in the payload's `error` field; it does not currently preserve a uniform structured error object or consistently mark the MCP tool result as an error.
+Uncaught Lua/embedding errors are normalized at the MCP boundary into `EXECUTION_FAILED` envelopes with `code`, `message`, `recoverable`, and `context`. Pre-execution and logging failures use MCP tool errors consistently.
 
 ## 14. Current limits and verification
 
@@ -476,7 +472,9 @@ Uncaught Lua/embedding errors are `anyhow` strings. MCP places the formatted str
 | Retained subprocess stderr | 1 MiB |
 | VFS text read | At most 1 MiB per call |
 | VFS listing default | 10,000 entries |
-| HTTP JSON response | No explicit body cap |
+| HTTP JSON response | 16 MiB default; 64 MiB maximum |
+| Runtime VFS/blob aggregate | 512 MiB each |
+| ZIP entries/expanded bytes/ratio | 1,000 / 100 MiB / 100:1 |
 
 Rust integration tests under `tests/` exercise CLI behavior, MCP tools and sessions, partial Lua restrictions, persistence, tasks, VFS, ingest, codecs, and transports. Loopback HTTP and Unix socket tests are ignored in environments that do not permit those resources.
 
@@ -488,13 +486,7 @@ This section is a review backlog, not current behavior.
 
 ### P2 — Harden resources and observability
 
-18. **Reuse HTTP clients and cap responses.** Add connection pooling, JSON/body limits, richer GraphQL errors with partial data, and true HTTP envelope metadata if required by the service contract.
-19. **Replace shell ZIP extraction.** Use an in-process archive library with entry, expanded-byte, compression-ratio, time, and total-disk quotas.
-20. **Add aggregate VFS/blob quotas and cleanup controls.** Report truncation and quota errors explicitly.
-21. **Unify structured errors.** Return one stable error envelope from Lua through MCP and set MCP error status consistently.
-22. **Add execution-log redaction and reliable failure reporting.** Make logging failure policy explicit and avoid recording raw secrets by default.
-23. **Remove unbounded process-global registries.** Scope stores, command secrets, and scheduling state to an application object with deterministic cleanup.
-24. **Add architecture-focused tests.** Cover schema tampering, wrapper installation, native module loading, MCP metrics, cross-session cache behavior, session eviction with tasks, duplicate/out-of-order request IDs, store concurrency, and timeout gaps.
+Completed: pooled and capped HTTP transport with optional HTTP envelopes; in-process quota-bound ZIP inspection; aggregate VFS/blob caps; stable MCP execution-error envelopes; redacted-by-default execution logs with explicit failure policy; bounded/pruned command-secret lookup and runtime-owned SQLite connections; and architecture-focused sandbox, session ordering, timeout, VFS, persistence, and metrics tests.
 
 ## 16. Maintaining this document
 

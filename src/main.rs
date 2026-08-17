@@ -194,22 +194,33 @@ fn execute(
         &code,
         ExecutionMode::Guarded,
         file.as_ref().map_or("<stdin>", |_| "<file>"),
-    )?;
+    );
+    let (output, result, error) = match execution {
+        Ok(execution) => (execution.output, execution.result, None),
+        Err(error) => (
+            runtime.captured_output(),
+            serde_json::Value::Null,
+            Some(format!("{error:#}")),
+        ),
+    };
     if let Some(logs_dir) = logs_dir {
         mcp_server::logging::Logger::new(&logs_dir)?.log(mcp_server::logging::ExecutionEntry {
             timestamp_ms: mcp_server::logging::now_ms(),
             session_id: "cli".into(),
             mode: "guarded".into(),
             code,
-            output: execution.output.clone(),
-            result: execution.result.clone(),
-            error: None,
+            output: output.clone(),
+            result: result.clone(),
+            error: error.clone(),
             duration_ms: started.elapsed().as_millis(),
         })?;
     }
-    print!("{}", execution.output);
-    if !execution.result.is_null() {
-        println!("{}", serde_json::to_string_pretty(&execution.result)?);
+    print!("{output}");
+    if let Some(error) = error {
+        bail!(error);
+    }
+    if !result.is_null() {
+        println!("{}", serde_json::to_string_pretty(&result)?);
     }
     Ok(())
 }

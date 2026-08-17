@@ -49,6 +49,15 @@ vfs.__schema = {
 			returns_typed = { { name = "result", type = "boolean" }, { name = "err", type = "core.error|nil" } },
 		},
 		{
+			name = "remove",
+			signature = "(path)",
+			returns_contract = "core.result",
+			guarded = true,
+			description = "Remove a VFS file or directory tree to reclaim runtime quota (requires guarded mode)",
+			params = { { name = "path", type = "string" } },
+			returns_typed = { { name = "removed", type = "boolean" }, { name = "err", type = "core.error|nil" } },
+		},
+		{
 			name = "write_text",
 			signature = "(path, text, opts?)",
 			returns_contract = "core.result",
@@ -164,6 +173,11 @@ function vfs.ensure_parent(path)
 		return true, nil
 	end
 	return sys.vfs.mkdirp(parent)
+end
+
+-- vfs.remove(path) -> (removed|nil, err)
+function vfs.remove(path)
+	return sys.vfs.remove(path)
 end
 
 -- vfs.write_text(path, text, opts?) -> (info|nil, err)

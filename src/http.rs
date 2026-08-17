@@ -1,5 +1,6 @@
 use std::{
     io::Read,
+    sync::OnceLock,
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -10,6 +11,19 @@ use reqwest::{Method, Url, blocking::Client};
 use serde_json::{Map, Value as JsonValue, json};
 
 use crate::runtime::lua_error;
+
+const DEFAULT_JSON_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_JSON_RESPONSE_BYTES: usize = 64 * 1024 * 1024;
+
+/// A process-wide reqwest client owns the connection pool. Per-request timeouts
+/// are set on RequestBuilder, so pooling never leaks a prior request's deadline.
+fn client() -> Result<&'static Client, TransportError> {
+    static CLIENT: OnceLock<Result<Client, String>> = OnceLock::new();
+    match CLIENT.get_or_init(|| Client::builder().build().map_err(|error| error.to_string())) {
+        Ok(client) => Ok(client),
+        Err(error) => Err(http_error(error)),
+    }
+}
 
 pub(crate) fn register(lua: &Lua, raw: &Table, tasks: crate::tasks::Manager) -> mlua::Result<()> {
     let http: Table = raw.get("http")?;
@@ -148,7 +162,11 @@ fn graphql_request_cancellable(
     {
         return Err(TransportError {
             code: "GRAPHQL_ERROR".to_owned(),
-            message: "GraphQL response contained errors".to_owned(),
+            message: format!(
+                "GraphQL response contained errors: {}; partial data: {}",
+                envelope.get("errors").unwrap_or(&JsonValue::Null),
+                envelope.get("data").unwrap_or(&JsonValue::Null)
+            ),
             recoverable: false,
         });
     }
@@ -661,7 +679,11 @@ fn graphql_envelope(
     {
         return Err(TransportError {
             code: "GRAPHQL_ERROR".into(),
-            message: "GraphQL response contained errors".into(),
+            message: format!(
+                "GraphQL response contained errors: {}; partial data: {}",
+                envelope.get("errors").unwrap_or(&JsonValue::Null),
+                envelope.get("data").unwrap_or(&JsonValue::Null)
+            ),
             recoverable: true,
         });
     }
@@ -720,13 +742,10 @@ fn request_cancellable(
         .unwrap_or(60.0);
     let timeout = crate::deadline::effective(Duration::from_secs_f64(requested_timeout))
         .ok_or_else(|| timeout_error("execution deadline exceeded"))?;
-    let client = Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(reqwest_error)?;
+    let client = client()?;
     let mut rate_retries = 0;
     let mut auth_retries = 0;
-    let (status, body) = loop {
+    let (status, headers, body) = loop {
         if cancellation
             .is_some_and(|cancelled| cancelled.load(std::sync::atomic::Ordering::Acquire))
         {
@@ -738,6 +757,7 @@ fn request_cancellable(
         }
         let mut builder = client
             .request(method.clone(), url.clone())
+            .timeout(timeout)
             .header("Accept", "application/json");
         builder = apply_headers(builder, opts.get("headers"))?;
         if let Some(auth) = opts.get("auth") {
@@ -789,8 +809,40 @@ fn request_cancellable(
                 continue;
             }
         }
-        let body = response.text().map_err(reqwest_error)?;
-        break (status, body);
+        let headers = response
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| {
+                value
+                    .to_str()
+                    .ok()
+                    .map(|value| (name.to_string(), JsonValue::String(value.to_owned())))
+            })
+            .collect::<Map<_, _>>();
+        let max_bytes = opts
+            .get("max_response_bytes")
+            .and_then(JsonValue::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(DEFAULT_JSON_RESPONSE_BYTES)
+            .min(MAX_JSON_RESPONSE_BYTES);
+        let mut bytes = Vec::new();
+        response
+            .take(max_bytes.saturating_add(1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(http_error)?;
+        if bytes.len() > max_bytes {
+            return Err(TransportError {
+                code: "RESULT_TOO_LARGE".into(),
+                message: format!("HTTP JSON response exceeds max_response_bytes={max_bytes}"),
+                recoverable: false,
+            });
+        }
+        let body = String::from_utf8(bytes).map_err(|_| TransportError {
+            code: "HTTP_ERROR".into(),
+            message: "HTTP JSON response is not valid UTF-8".into(),
+            recoverable: false,
+        })?;
+        break (status, headers, body);
     };
     if !status.is_success() {
         return Err(TransportError {
@@ -802,11 +854,16 @@ fn request_cancellable(
     if method == Method::HEAD || body.trim().is_empty() {
         return Ok(JsonValue::Null);
     }
-    serde_json::from_str(&body).map_err(|error| TransportError {
+    let decoded = serde_json::from_str(&body).map_err(|error| TransportError {
         code: "HTTP_ERROR".to_owned(),
         message: format!("failed to parse JSON response: {error}"),
         recoverable: true,
-    })
+    })?;
+    if opts.get("response_mode").and_then(JsonValue::as_str) == Some("http_envelope") {
+        Ok(json!({"status":status.as_u16(),"headers":headers,"body":decoded}))
+    } else {
+        Ok(decoded)
+    }
 }
 
 pub(crate) fn request_bytes(
@@ -826,13 +883,10 @@ pub(crate) fn request_bytes(
         .unwrap_or(60.0);
     let timeout = crate::deadline::effective(Duration::from_secs_f64(requested_timeout))
         .ok_or_else(|| timeout_error("execution deadline exceeded"))?;
-    let client = Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(reqwest_error)?;
+    let client = client()?;
     let mut auth_retries = 0;
     let response = loop {
-        let mut builder = client.request(method.clone(), url.clone());
+        let mut builder = client.request(method.clone(), url.clone()).timeout(timeout);
         builder = apply_headers(builder, opts.get("headers"))?;
         if let Some(auth) = opts.get("auth") {
             builder = apply_auth(builder, auth)?;

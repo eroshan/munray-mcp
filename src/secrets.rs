@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     process::{Command, Stdio},
-    sync::{Arc, OnceLock, Weak},
+    sync::{
+        Arc, OnceLock, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -12,7 +15,21 @@ use serde_json::Value as JsonValue;
 
 use crate::runtime::lua_error;
 
+/// Command references cannot outlive their runtime's CLI allowlist. Keep the
+/// compatibility lookup bounded and prune expired runtime-owned definitions.
+const MAX_COMMANDS: usize = 1_024;
 static COMMANDS: OnceLock<Mutex<HashMap<String, Arc<CommandSecret>>>> = OnceLock::new();
+
+pub(crate) fn cleanup() {
+    if let Some(commands) = COMMANDS.get() {
+        commands.lock().retain(|_, command| {
+            command
+                .active
+                .upgrade()
+                .is_some_and(|active| active.load(Ordering::Acquire))
+        });
+    }
+}
 
 struct CommandSecret {
     tool: String,
@@ -20,6 +37,7 @@ struct CommandSecret {
     timeout: Duration,
     ttl: Duration,
     allowed_cli: Weak<Mutex<Vec<String>>>,
+    active: Weak<AtomicBool>,
     cache: Mutex<Option<(Instant, String)>>,
 }
 
@@ -34,6 +52,7 @@ pub(crate) fn register(
     lua: &Lua,
     raw: &Table,
     allowed_cli: Arc<Mutex<Vec<String>>>,
+    active: Arc<AtomicBool>,
 ) -> mlua::Result<()> {
     let secrets: Table = raw.get("secrets")?;
     secrets.set(
@@ -83,21 +102,30 @@ pub(crate) fn register(
                     .collect::<mlua::Result<Vec<_>>>()?,
                 None => Vec::new(),
             };
+            cleanup();
             let id = uuid::Uuid::new_v4().to_string();
-            COMMANDS
-                .get_or_init(|| Mutex::new(HashMap::new()))
-                .lock()
-                .insert(
-                    id.clone(),
-                    Arc::new(CommandSecret {
-                        tool,
-                        args,
-                        timeout: Duration::from_secs(timeout.max(1)),
-                        ttl: Duration::from_secs(ttl),
-                        allowed_cli: Arc::downgrade(&allowed_cli),
-                        cache: Mutex::new(None),
-                    }),
+            let mut commands = COMMANDS.get_or_init(|| Mutex::new(HashMap::new())).lock();
+            if commands.len() >= MAX_COMMANDS {
+                return lua_error(
+                    lua,
+                    "SECRET_QUOTA_EXCEEDED",
+                    format!("at most {MAX_COMMANDS} command secrets may be active"),
+                    true,
                 );
+            }
+            commands.insert(
+                id.clone(),
+                Arc::new(CommandSecret {
+                    tool,
+                    args,
+                    timeout: Duration::from_secs(timeout.max(1)),
+                    ttl: Duration::from_secs(ttl),
+                    allowed_cli: Arc::downgrade(&allowed_cli),
+                    active: Arc::downgrade(&active),
+                    cache: Mutex::new(None),
+                }),
+            );
+            drop(commands);
             let reference = lua.create_table()?;
             reference.set("kind", "command")?;
             reference.set("id", id)?;
@@ -262,7 +290,7 @@ mod tests {
         let raw = lua.create_table().unwrap();
         raw.set("secrets", lua.create_table().unwrap()).unwrap();
         let allowed = Arc::new(Mutex::new(vec!["sh".to_owned()]));
-        register(&lua, &raw, allowed).unwrap();
+        register(&lua, &raw, allowed, Arc::new(AtomicBool::new(true))).unwrap();
         lua.globals().set("sys", raw).unwrap();
         let reference: Value = lua
             .load(
@@ -285,7 +313,7 @@ mod tests {
         let raw = lua.create_table().unwrap();
         raw.set("secrets", lua.create_table().unwrap()).unwrap();
         let allowed = Arc::new(Mutex::new(Vec::new()));
-        register(&lua, &raw, allowed).unwrap();
+        register(&lua, &raw, allowed, Arc::new(AtomicBool::new(true))).unwrap();
         lua.globals().set("sys", raw).unwrap();
         let reference: Value = lua
             .load(r#"return sys.secrets.command({tool="sh"})"#)

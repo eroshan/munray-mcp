@@ -2,7 +2,6 @@ use std::{
     fs,
     io::{Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
-    process::Command,
     sync::Arc,
 };
 
@@ -11,9 +10,12 @@ use parking_lot::Mutex;
 use serde_json::json;
 use tempfile::TempDir;
 use walkdir::WalkDir;
+use zip::ZipArchive;
 
 use crate::blob::{BlobRef, BlobStore};
 use crate::runtime::lua_error;
+
+const MAX_VFS_BYTES: u64 = 512 * 1024 * 1024;
 
 pub(crate) fn register(
     lua: &Lua,
@@ -56,6 +58,11 @@ pub(crate) fn register(
                         format!("file already exists: {path}"),
                         false,
                     );
+                }
+                if let Err(error) =
+                    ensure_write_quota(blob_root.path(), &resolved, bytes.len() as u64)
+                {
+                    return lua_error(lua, "VFS_QUOTA_EXCEEDED", error, false);
                 }
                 if let Some(parent) = resolved.parent()
                     && let Err(error) = fs::create_dir_all(parent)
@@ -101,6 +108,29 @@ pub(crate) fn register(
 
     let vfs_root = Arc::clone(&root);
     vfs.set(
+        "remove",
+        lua.create_function(move |lua, path: String| {
+            let resolved = match resolve(vfs_root.path(), &path) {
+                Ok(path) => path,
+                Err(error) => return lua_error(lua, "VFS_ERROR", error, false),
+            };
+            let result = match fs::metadata(&resolved) {
+                Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&resolved),
+                Ok(_) => fs::remove_file(&resolved),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok((Value::Boolean(false), Value::Nil));
+                }
+                Err(error) => return lua_error(lua, "VFS_ERROR", error.to_string(), false),
+            };
+            match result {
+                Ok(()) => Ok((Value::Boolean(true), Value::Nil)),
+                Err(error) => lua_error(lua, "VFS_ERROR", error.to_string(), false),
+            }
+        })?,
+    )?;
+
+    let vfs_root = Arc::clone(&root);
+    vfs.set(
         "write_text",
         lua.create_function(
             move |lua, (path, text, opts): (String, String, Option<Table>)| {
@@ -118,6 +148,11 @@ pub(crate) fn register(
                         format!("file already exists: {path}"),
                         false,
                     );
+                }
+                if let Err(error) =
+                    ensure_write_quota(vfs_root.path(), &resolved, text.len() as u64)
+                {
+                    return lua_error(lua, "VFS_QUOTA_EXCEEDED", error, false);
                 }
                 if let Some(parent) = resolved.parent()
                     && let Err(error) = fs::create_dir_all(parent)
@@ -269,6 +304,36 @@ fn resolve(root: &Path, relative: &str) -> Result<PathBuf, String> {
     Ok(root.join(path))
 }
 
+const ZIP_MAX_ENTRIES: usize = 1_000;
+const ZIP_MAX_EXPANDED_BYTES: u64 = 100 * 1024 * 1024;
+const ZIP_MAX_COMPRESSION_RATIO: u64 = 100;
+const ZIP_MAX_PREVIEW_BYTES: usize = 1024 * 1024;
+
+fn vfs_bytes(root: &Path) -> u64 {
+    WalkDir::new(root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+        .sum()
+}
+
+fn ensure_write_quota(root: &Path, destination: &Path, size: u64) -> Result<(), String> {
+    let replaced = fs::metadata(destination)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    let projected = vfs_bytes(root)
+        .saturating_sub(replaced)
+        .saturating_add(size);
+    if projected > MAX_VFS_BYTES {
+        return Err(format!(
+            "runtime VFS quota is {MAX_VFS_BYTES} bytes (requested projected size {projected})"
+        ));
+    }
+    Ok(())
+}
+
 fn zip_to_text(
     _lua: &Lua,
     root: &Path,
@@ -278,19 +343,22 @@ fn zip_to_text(
     if !vfs_path.to_ascii_lowercase().ends_with(".zip") {
         return Err("unsupported to_text format".into());
     }
-    let archive = resolve(root, vfs_path)?;
+    let archive_path = resolve(root, vfs_path)?;
     let max_files = opts
         .as_ref()
         .and_then(|opts| opts.get::<usize>("max_files").ok())
-        .unwrap_or(50);
+        .unwrap_or(50)
+        .min(ZIP_MAX_ENTRIES);
     let preview_per_file = opts
         .as_ref()
         .and_then(|opts| opts.get::<usize>("preview_bytes_per_file").ok())
-        .unwrap_or(4096);
+        .unwrap_or(4096)
+        .min(ZIP_MAX_PREVIEW_BYTES);
     let total_preview_limit = opts
         .as_ref()
         .and_then(|opts| opts.get::<usize>("total_preview_bytes").ok())
-        .unwrap_or(200 * 1024);
+        .unwrap_or(200 * 1024)
+        .min(ZIP_MAX_PREVIEW_BYTES);
     let default_dir = format!(
         "extracted/{}",
         Path::new(vfs_path)
@@ -303,88 +371,103 @@ fn zip_to_text(
         .unwrap_or(default_dir);
     resolve(root, &extract_dir)?;
 
-    let listing = run_unzip(["-Z1", archive.to_string_lossy().as_ref()])?;
-    if !listing.status.success() {
+    let file =
+        fs::File::open(archive_path).map_err(|error| format!("failed to open zip: {error}"))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|error| format!("invalid zip archive: {error}"))?;
+    if archive.len() > ZIP_MAX_ENTRIES {
         return Err(format!(
-            "failed to inspect zip: {}",
-            String::from_utf8_lossy(&listing.stderr)
+            "ZIP_QUOTA_EXCEEDED: archive has {} entries; limit is {ZIP_MAX_ENTRIES}",
+            archive.len()
         ));
     }
-    let names = String::from_utf8(listing.stdout)
-        .map_err(|_| "zip contains non-UTF-8 entry names".to_owned())?;
-    let all_files = names
-        .lines()
-        .filter(|name| !name.ends_with('/'))
-        .collect::<Vec<_>>();
+    let mut descriptors = Vec::new();
+    let mut expanded = 0_u64;
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index(index)
+            .map_err(|error| format!("failed to inspect zip entry: {error}"))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name().to_owned();
+        let entry_path = Path::new(&name);
+        if entry_path.is_absolute()
+            || entry_path.components().any(|part| {
+                matches!(
+                    part,
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                )
+            })
+        {
+            return Err(format!("ZIP_INVALID_ENTRY: unsafe archive entry {name:?}"));
+        }
+        let compressed = entry.compressed_size();
+        let size = entry.size();
+        if size > ZIP_MAX_EXPANDED_BYTES
+            || (compressed == 0 && size > 0)
+            || (compressed > 0 && size / compressed > ZIP_MAX_COMPRESSION_RATIO)
+        {
+            return Err(format!(
+                "ZIP_QUOTA_EXCEEDED: entry {name:?} exceeds compression-ratio limit"
+            ));
+        }
+        expanded = expanded
+            .checked_add(size)
+            .ok_or_else(|| "ZIP_QUOTA_EXCEEDED: expanded size overflow".to_owned())?;
+        if expanded > ZIP_MAX_EXPANDED_BYTES {
+            return Err(format!(
+                "ZIP_QUOTA_EXCEEDED: expanded bytes exceed {ZIP_MAX_EXPANDED_BYTES}"
+            ));
+        }
+        descriptors.push((index, name));
+    }
+    if vfs_bytes(root).saturating_add(expanded) > MAX_VFS_BYTES {
+        return Err(format!(
+            "VFS_QUOTA_EXCEEDED: ZIP extraction would exceed runtime VFS quota of {MAX_VFS_BYTES} bytes"
+        ));
+    }
     let mut files = Vec::new();
     let mut preview_used = 0;
-    for name in all_files.iter().take(max_files) {
-        if Path::new(name).is_absolute()
-            || Path::new(name)
-                .components()
-                .any(|part| matches!(part, Component::ParentDir))
-        {
-            continue;
+    for (index, name) in descriptors.iter().take(max_files) {
+        if crate::deadline::effective(std::time::Duration::from_secs(1)).is_none() {
+            return Err("TIMEOUT: execution deadline exceeded during ZIP extraction".into());
         }
-        let output = run_unzip(["-p", archive.to_string_lossy().as_ref(), name])?;
-        if !output.status.success() {
-            continue;
-        }
+        let mut entry = archive
+            .by_index(*index)
+            .map_err(|error| format!("failed to read zip entry: {error}"))?;
+        let mut bytes = Vec::with_capacity(usize::try_from(entry.size()).unwrap_or(0));
+        entry
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("failed to extract zip entry {name:?}: {error}"))?;
         let entry_path = format!("{extract_dir}/{name}");
         let destination = resolve(root, &entry_path)?;
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
-        fs::write(&destination, &output.stdout).map_err(|error| error.to_string())?;
-        let mut file = json!({"path":entry_path,"bytes":output.stdout.len()});
+        fs::write(&destination, &bytes).map_err(|error| error.to_string())?;
+        let mut item = json!({"path":entry_path,"bytes":bytes.len()});
         if is_text_extension(name) && preview_used < total_preview_limit {
             let amount = preview_per_file
                 .min(total_preview_limit - preview_used)
-                .min(output.stdout.len());
+                .min(bytes.len());
             if amount > 0
-                && let Ok(preview) = std::str::from_utf8(&output.stdout[..amount])
+                && let Ok(preview) = std::str::from_utf8(&bytes[..amount])
             {
-                file["preview"] = json!(preview);
+                item["preview"] = json!(preview);
                 preview_used += preview.len();
             }
         }
-        files.push(file);
+        files.push(item);
     }
-    let suffix = if all_files.len() > max_files {
+    let suffix = if descriptors.len() > max_files {
         format!(" (showing first {max_files})")
     } else {
         String::new()
     };
-    Ok(json!({
-        "kind":"zip",
-        "extracted_dir":format!("{extract_dir}/"),
-        "summary":format!("Zip archive with {} files{suffix}", all_files.len()),
-        "files":files,
-    }))
-}
-
-struct UnzipOutput {
-    status: std::process::ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-}
-
-fn run_unzip<'a>(args: impl IntoIterator<Item = &'a str>) -> Result<UnzipOutput, String> {
-    let Some(timeout) = crate::deadline::effective(std::time::Duration::from_secs(60)) else {
-        return Err("execution deadline exceeded before ZIP work".into());
-    };
-    let mut command = Command::new("unzip");
-    command.args(args);
-    let output = crate::process::capture(&mut command, timeout, 200 * 1024 * 1024)
-        .map_err(|error| format!("failed to run unzip: {error}"))?;
-    if output.timed_out {
-        return Err("ZIP extraction timed out".into());
-    }
-    Ok(UnzipOutput {
-        status: output.status,
-        stdout: output.stdout,
-        stderr: output.stderr,
-    })
+    Ok(
+        json!({"kind":"zip", "extracted_dir":format!("{extract_dir}/"), "summary":format!("Zip archive with {} files{suffix}", descriptors.len()), "files":files, "truncated":descriptors.len() > max_files}),
+    )
 }
 
 fn is_text_extension(name: &str) -> bool {

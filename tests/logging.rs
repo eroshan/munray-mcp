@@ -25,3 +25,24 @@ fn logged_cli_execution_is_written_to_owner_only_jsonl() {
         assert_eq!(mode, 0o600);
     }
 }
+
+#[test]
+fn logs_redact_execution_values_unless_raw_logging_is_explicitly_enabled() {
+    let directory = tempfile::tempdir().unwrap();
+    mcp_server::logging::Logger::new(directory.path())
+        .unwrap()
+        .log(mcp_server::logging::ExecutionEntry {
+            timestamp_ms: 0,
+            session_id: "test".into(),
+            mode: "readonly".into(),
+            code: "return 'secret-token'".into(),
+            output: "secret-token".into(),
+            result: serde_json::json!("secret-token"),
+            error: Some("secret-token".into()),
+            duration_ms: 0,
+        })
+        .unwrap();
+    let line = std::fs::read_to_string(directory.path().join("executions.jsonl")).unwrap();
+    assert!(!line.contains("secret-token"));
+    assert!(line.contains("[redacted]"));
+}

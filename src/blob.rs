@@ -6,6 +6,8 @@ use parking_lot::Mutex;
 use crate::runtime::lua_error;
 
 const DEFAULT_MAX_BYTES: usize = 200 * 1024 * 1024;
+/// Runtime-wide cap prevents many individually valid captures exhausting memory.
+const MAX_TOTAL_BYTES: usize = 512 * 1024 * 1024;
 
 #[derive(Clone)]
 pub(crate) struct BlobStore {
@@ -19,11 +21,18 @@ impl BlobStore {
         }
     }
 
-    fn put(&self, bytes: Vec<u8>) -> BlobRef {
+    fn put(&self, bytes: Vec<u8>) -> Result<BlobRef, String> {
+        let mut values = self.values.lock();
+        let used = values.values().map(|value| value.len()).sum::<usize>();
+        if bytes.len() > MAX_TOTAL_BYTES.saturating_sub(used) {
+            return Err(format!(
+                "BLOB_QUOTA_EXCEEDED: runtime blob quota is {MAX_TOTAL_BYTES} bytes"
+            ));
+        }
         let id = uuid::Uuid::new_v4().to_string();
         let size = bytes.len();
-        self.values.lock().insert(id.clone(), Arc::new(bytes));
-        BlobRef { id, size }
+        values.insert(id.clone(), Arc::new(bytes));
+        Ok(BlobRef { id, size })
     }
 
     pub(crate) fn get(&self, reference: &BlobRef) -> Option<Arc<Vec<u8>>> {
@@ -120,7 +129,10 @@ pub(crate) fn register(
                         false,
                     );
                 }
-                let reference = capture_store.put(output.stdout);
+                let reference = match capture_store.put(output.stdout) {
+                    Ok(reference) => reference,
+                    Err(error) => return lua_error(lua, "BLOB_QUOTA_EXCEEDED", error, false),
+                };
                 Ok((Value::UserData(lua.create_userdata(reference)?), Value::Nil))
             },
         )?,
@@ -139,10 +151,12 @@ pub(crate) fn register(
                     .filter(|value| *value > 0)
                     .unwrap_or(DEFAULT_MAX_BYTES);
                 match crate::http::request_bytes(&method, &base_url, &path, &opts, max_bytes) {
-                    Ok(bytes) => {
-                        let reference = capture_store.put(bytes);
-                        Ok((Value::UserData(lua.create_userdata(reference)?), Value::Nil))
-                    }
+                    Ok(bytes) => match capture_store.put(bytes) {
+                        Ok(reference) => {
+                            Ok((Value::UserData(lua.create_userdata(reference)?), Value::Nil))
+                        }
+                        Err(error) => lua_error(lua, "BLOB_QUOTA_EXCEEDED", error, false),
+                    },
                     Err(error) => lua_error(lua, &error.code, error.message, error.recoverable),
                 }
             },

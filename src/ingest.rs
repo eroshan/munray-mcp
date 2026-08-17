@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fs, sync::Arc};
 
+use walkdir::WalkDir;
+
 use mlua::{Lua, Table, Value};
 use parking_lot::Mutex;
 use tempfile::TempDir;
@@ -7,6 +9,17 @@ use tempfile::TempDir;
 use crate::runtime::lua_error;
 
 const MAX_BYTES: usize = 64 * 1024 * 1024;
+const MAX_VFS_BYTES: u64 = 512 * 1024 * 1024;
+
+fn vfs_bytes(root: &std::path::Path) -> u64 {
+    WalkDir::new(root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
+        .sum()
+}
 
 #[derive(Clone)]
 pub(crate) struct IngestStore {
@@ -25,6 +38,11 @@ impl IngestStore {
     pub(crate) fn store(&self, text: &str) -> Result<String, String> {
         if text.len() > MAX_BYTES {
             return Err(format!("ingest content exceeds {MAX_BYTES} bytes"));
+        }
+        if vfs_bytes(self.root.path()).saturating_add(text.len() as u64) > MAX_VFS_BYTES {
+            return Err(format!(
+                "VFS_QUOTA_EXCEEDED: runtime VFS quota is {MAX_VFS_BYTES} bytes"
+            ));
         }
         let token = format!("ing_{}", uuid::Uuid::new_v4().simple());
         let relative = format!("__ingest/{token}.txt");
