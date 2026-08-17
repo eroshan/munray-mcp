@@ -740,8 +740,7 @@ fn request_cancellable(
         .and_then(JsonValue::as_f64)
         .filter(|timeout| timeout.is_finite() && *timeout > 0.0)
         .unwrap_or(60.0);
-    let timeout = crate::deadline::effective(Duration::from_secs_f64(requested_timeout))
-        .ok_or_else(|| timeout_error("execution deadline exceeded"))?;
+    let requested_timeout = Duration::from_secs_f64(requested_timeout);
     let client = client()?;
     let mut rate_retries = 0;
     let mut auth_retries = 0;
@@ -755,6 +754,8 @@ fn request_cancellable(
                 recoverable: false,
             });
         }
+        let timeout = crate::deadline::effective(requested_timeout)
+            .ok_or_else(|| timeout_error("execution deadline exceeded"))?;
         let mut builder = client
             .request(method.clone(), url.clone())
             .timeout(timeout)
@@ -881,11 +882,12 @@ pub(crate) fn request_bytes(
         .and_then(JsonValue::as_f64)
         .filter(|timeout| timeout.is_finite() && *timeout > 0.0)
         .unwrap_or(60.0);
-    let timeout = crate::deadline::effective(Duration::from_secs_f64(requested_timeout))
-        .ok_or_else(|| timeout_error("execution deadline exceeded"))?;
+    let requested_timeout = Duration::from_secs_f64(requested_timeout);
     let client = client()?;
     let mut auth_retries = 0;
     let response = loop {
+        let timeout = crate::deadline::effective(requested_timeout)
+            .ok_or_else(|| timeout_error("execution deadline exceeded"))?;
         let mut builder = client.request(method.clone(), url.clone()).timeout(timeout);
         builder = apply_headers(builder, opts.get("headers"))?;
         if let Some(auth) = opts.get("auth") {

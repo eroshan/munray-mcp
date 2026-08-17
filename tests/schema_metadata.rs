@@ -1,6 +1,23 @@
 use std::fs;
 
 use mcp_server::runtime::LuaRuntime;
+use serde_json::Value;
+
+#[test]
+fn capability_json_schema_declares_guarded_and_rejects_obsolete_mutating() {
+    let schema: Value =
+        serde_json::from_str(include_str!("../src/assets/capabilities.schema.json")).unwrap();
+    let function = &schema["$defs"]["FunctionSchema"];
+    assert!(
+        function["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "guarded")
+    );
+    assert_eq!(function["properties"]["guarded"]["type"], "boolean");
+    assert!(function["properties"].get("mutating").is_none());
+}
 
 #[test]
 fn discovered_schemas_keep_descriptors_unmodified_and_normalize_empty_lists() {

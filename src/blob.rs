@@ -9,34 +9,90 @@ const DEFAULT_MAX_BYTES: usize = 200 * 1024 * 1024;
 /// Runtime-wide cap prevents many individually valid captures exhausting memory.
 const MAX_TOTAL_BYTES: usize = 512 * 1024 * 1024;
 
+struct BlobState {
+    values: HashMap<String, Arc<Vec<u8>>>,
+    reserved: usize,
+}
+
 #[derive(Clone)]
 pub(crate) struct BlobStore {
-    values: Arc<Mutex<HashMap<String, Arc<Vec<u8>>>>>,
+    state: Arc<Mutex<BlobState>>,
+}
+
+/// A capture reserves its maximum buffered size before reading bytes. This
+/// makes the aggregate quota a memory bound, not an after-the-fact check.
+struct BlobReservation {
+    store: BlobStore,
+    limit: usize,
+    quota_limited: bool,
+    committed: bool,
 }
 
 impl BlobStore {
     pub(crate) fn new() -> Self {
         Self {
-            values: Arc::new(Mutex::new(HashMap::new())),
+            state: Arc::new(Mutex::new(BlobState {
+                values: HashMap::new(),
+                reserved: 0,
+            })),
         }
     }
 
-    fn put(&self, bytes: Vec<u8>) -> Result<BlobRef, String> {
-        let mut values = self.values.lock();
-        let used = values.values().map(|value| value.len()).sum::<usize>();
-        if bytes.len() > MAX_TOTAL_BYTES.saturating_sub(used) {
-            return Err(format!(
-                "BLOB_QUOTA_EXCEEDED: runtime blob quota is {MAX_TOTAL_BYTES} bytes"
-            ));
+    fn reserve(&self, requested: usize) -> Result<BlobReservation, String> {
+        let mut state = self.state.lock();
+        let used = state
+            .values
+            .values()
+            .map(|value| value.len())
+            .sum::<usize>();
+        let available = MAX_TOTAL_BYTES.saturating_sub(used.saturating_add(state.reserved));
+        let limit = requested.min(available);
+        if limit == 0 {
+            return Err(format!("runtime blob quota is {MAX_TOTAL_BYTES} bytes"));
         }
-        let id = uuid::Uuid::new_v4().to_string();
-        let size = bytes.len();
-        values.insert(id.clone(), Arc::new(bytes));
-        Ok(BlobRef { id, size })
+        state.reserved += limit;
+        Ok(BlobReservation {
+            store: self.clone(),
+            limit,
+            quota_limited: requested > available,
+            committed: false,
+        })
     }
 
     pub(crate) fn get(&self, reference: &BlobRef) -> Option<Arc<Vec<u8>>> {
-        self.values.lock().get(&reference.id).cloned()
+        self.state.lock().values.get(&reference.id).cloned()
+    }
+}
+
+impl BlobReservation {
+    fn limit(&self) -> usize {
+        self.limit
+    }
+
+    fn quota_limited(&self) -> bool {
+        self.quota_limited
+    }
+
+    fn commit(mut self, bytes: Vec<u8>) -> Result<BlobRef, String> {
+        if bytes.len() > self.limit {
+            return Err("captured blob exceeded its reserved quota".into());
+        }
+        let mut state = self.store.state.lock();
+        state.reserved = state.reserved.saturating_sub(self.limit);
+        let id = uuid::Uuid::new_v4().to_string();
+        let size = bytes.len();
+        state.values.insert(id.clone(), Arc::new(bytes));
+        self.committed = true;
+        Ok(BlobRef { id, size })
+    }
+}
+
+impl Drop for BlobReservation {
+    fn drop(&mut self) {
+        if !self.committed {
+            let mut state = self.store.state.lock();
+            state.reserved = state.reserved.saturating_sub(self.limit);
+        }
     }
 }
 
@@ -95,16 +151,21 @@ pub(crate) fn register(
                 else {
                     return lua_error(lua, "TIMEOUT", "execution deadline exceeded".into(), true);
                 };
+                let reservation = match capture_store.reserve(max_bytes) {
+                    Ok(reservation) => reservation,
+                    Err(error) => return lua_error(lua, "BLOB_QUOTA_EXCEEDED", error, false),
+                };
                 let cwd = opts.and_then(|opts| opts.get::<String>("cwd").ok());
                 let mut command = Command::new(&tool);
                 command.args(args);
                 if let Some(cwd) = cwd {
                     command.current_dir(cwd);
                 }
-                let output = match crate::process::capture(&mut command, timeout, max_bytes) {
-                    Ok(output) => output,
-                    Err(error) => return lua_error(lua, "CLI_ERROR", error.to_string(), true),
-                };
+                let output =
+                    match crate::process::capture(&mut command, timeout, reservation.limit()) {
+                        Ok(output) => output,
+                        Err(error) => return lua_error(lua, "CLI_ERROR", error.to_string(), true),
+                    };
                 if output.timed_out {
                     return lua_error(
                         lua,
@@ -122,14 +183,20 @@ pub(crate) fn register(
                     );
                 }
                 if output.stdout_exceeded {
-                    return lua_error(
-                        lua,
-                        "RESULT_TOO_LARGE",
-                        format!("blob exceeds max_bytes={max_bytes}"),
-                        false,
-                    );
+                    let (code, message) = if reservation.quota_limited() {
+                        (
+                            "BLOB_QUOTA_EXCEEDED",
+                            "blob exceeds remaining runtime quota".to_owned(),
+                        )
+                    } else {
+                        (
+                            "RESULT_TOO_LARGE",
+                            format!("blob exceeds max_bytes={max_bytes}"),
+                        )
+                    };
+                    return lua_error(lua, code, message, false);
                 }
-                let reference = match capture_store.put(output.stdout) {
+                let reference = match reservation.commit(output.stdout) {
                     Ok(reference) => reference,
                     Err(error) => return lua_error(lua, "BLOB_QUOTA_EXCEEDED", error, false),
                 };
@@ -150,13 +217,33 @@ pub(crate) fn register(
                     .and_then(|value| usize::try_from(value).ok())
                     .filter(|value| *value > 0)
                     .unwrap_or(DEFAULT_MAX_BYTES);
-                match crate::http::request_bytes(&method, &base_url, &path, &opts, max_bytes) {
-                    Ok(bytes) => match capture_store.put(bytes) {
+                let reservation = match capture_store.reserve(max_bytes) {
+                    Ok(reservation) => reservation,
+                    Err(error) => return lua_error(lua, "BLOB_QUOTA_EXCEEDED", error, false),
+                };
+                match crate::http::request_bytes(
+                    &method,
+                    &base_url,
+                    &path,
+                    &opts,
+                    reservation.limit(),
+                ) {
+                    Ok(bytes) => match reservation.commit(bytes) {
                         Ok(reference) => {
                             Ok((Value::UserData(lua.create_userdata(reference)?), Value::Nil))
                         }
                         Err(error) => lua_error(lua, "BLOB_QUOTA_EXCEEDED", error, false),
                     },
+                    Err(error)
+                        if reservation.quota_limited() && error.code == "RESULT_TOO_LARGE" =>
+                    {
+                        lua_error(
+                            lua,
+                            "BLOB_QUOTA_EXCEEDED",
+                            "blob exceeds remaining runtime quota".into(),
+                            false,
+                        )
+                    }
                     Err(error) => lua_error(lua, &error.code, error.message, error.recoverable),
                 }
             },
@@ -178,4 +265,18 @@ pub(crate) fn register(
         )?,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reservations_enforce_quota_before_capture_allocates() {
+        let store = BlobStore::new();
+        let reservation = store.reserve(MAX_TOTAL_BYTES).unwrap();
+        assert!(store.reserve(1).is_err());
+        drop(reservation);
+        assert!(store.reserve(1).is_ok());
+    }
 }

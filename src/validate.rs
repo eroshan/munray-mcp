@@ -272,7 +272,6 @@ fn structural_function(ns: &str, i: usize, value: &Value, issues: &mut Vec<Issue
         "description",
         "summary",
         "deprecated",
-        "mutating",
         "guarded",
         "returns_typed",
         "yields",

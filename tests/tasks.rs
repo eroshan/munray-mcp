@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, time::Duration};
 
 use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 
@@ -111,6 +111,39 @@ fn async_cli_preserves_timeout_error_code() {
         )
         .unwrap();
     assert_eq!(execution.result, "TIMEOUT");
+}
+
+#[test]
+fn async_cli_inherits_the_start_call_deadline() {
+    let services = tempfile::tempdir().unwrap();
+    let src = services.path().join("demo/src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("init.lua"),
+        "demo = { __allowed_cli_commands = {'sh'} }",
+    )
+    .unwrap();
+    let runtime = LuaRuntime::new(Some(services.path())).unwrap();
+    let started = runtime
+        .execute_with_timeout(
+            "return sys.cli.start_text('sh', {'-c', 'sleep 1'}, {timeout=10})",
+            ExecutionMode::ReadOnly,
+            "<test>",
+            Some(Duration::from_millis(30)),
+        )
+        .unwrap();
+    let id = started.result.as_str().unwrap();
+    std::thread::sleep(Duration::from_millis(80));
+    let result = runtime
+        .execute(
+            &format!(
+                "local value, err = async_task.result('{id}'); return value == nil and err.code"
+            ),
+            ExecutionMode::ReadOnly,
+            "<test>",
+        )
+        .unwrap();
+    assert_eq!(result.result, "TIMEOUT");
 }
 
 #[test]

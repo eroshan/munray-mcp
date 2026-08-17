@@ -24,6 +24,12 @@ local function normalize_definition(definition)
   if namespace:find("/", 1, true) or name:find("/", 1, true) then
     return fail("VALIDATION", "namespace and name use Lua dots, not filesystem slashes")
   end
+  -- Snippets are trusted code and may call sys.* from their implementation,
+  -- but sys itself is the raw primitive table and cannot be a public snippet
+  -- namespace. Publishing it would expose raw callbacks to MCP session code.
+  if namespace == "sys" or namespace:sub(1, 4) == "sys." then
+    return fail("VALIDATION", "sys is reserved for internal raw primitives; choose another public namespace")
+  end
   local path = namespace .. "." .. name
   local normalized = {}
   for key, value in pairs(definition) do normalized[key] = value end

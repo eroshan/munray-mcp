@@ -96,6 +96,7 @@
       "ls": "(path, opts?) -> core.result",
       "mkdirp": "(path)* -> core.result",
       "read_text": "(path, opts?) -> core.result",
+      "remove": "(path)* -> core.result",
       "stat": "(path) -> core.result",
       "to_txt": "(path, opts?) -> core.result",
       "write_text": "(path, text, opts?)* -> core.result"

@@ -73,7 +73,10 @@
         "summary": { "type": "string" },
         "deprecated": { "type": "boolean" },
 
-        "mutating": { "type": "boolean" },
+        "guarded": {
+          "type": "boolean",
+          "description": "Whether the operation requires guarded execution."
+        },
 
         "returns_contract": {
           "type": "string",

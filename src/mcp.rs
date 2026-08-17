@@ -194,6 +194,9 @@ struct QueuedRequest {
 }
 
 const MCP_INSTRUCTIONS: &str = include_str!("assets/mcp-instructions.md");
+/// Bound retained client-controlled runtimes. Idle entries are still evicted
+/// lazily, but new IDs cannot grow the server without limit in the meantime.
+const MAX_SESSIONS: usize = 64;
 
 fn initialization_instructions(service_dir: Option<&std::path::Path>) -> Result<String, String> {
     // Build the same trusted bootstrap used by sessions so only successfully
@@ -334,7 +337,7 @@ impl McpServer {
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         // Allocate the queue ticket synchronously at handler receipt, before a
         // slow VM build can reorder concurrent same-session calls.
-        let permit = self.reserve_queue(&session_id);
+        let permit = self.reserve_queue(&session_id)?;
         let server = self.clone();
         let session_id_for_build = session_id.clone();
         // Constructing a Lua VM loads packs and SQLite. It never runs on the
@@ -402,13 +405,18 @@ impl McpServer {
         .map_err(|error| error.to_string())?
     }
 
-    fn reserve_queue(&self, session_id: &str) -> SessionPermit {
+    fn reserve_queue(&self, session_id: &str) -> Result<SessionPermit, String> {
         let mut sessions = self.sessions.lock();
         Self::retain_live_sessions(&mut sessions, Instant::now(), self.session_ttl);
         match sessions.get(session_id) {
-            Some(SessionEntry::Ready(session)) => session.reserve(),
-            Some(SessionEntry::Building(state)) => state.queue.reserve(),
+            Some(SessionEntry::Ready(session)) => Ok(session.reserve()),
+            Some(SessionEntry::Building(state)) => Ok(state.queue.reserve()),
             None => {
+                if sessions.len() >= MAX_SESSIONS {
+                    return Err(format!(
+                        "session capacity of {MAX_SESSIONS} reached; reuse or wait for an existing session to expire"
+                    ));
+                }
                 let queue = Arc::new(SessionQueue::new());
                 let state = Arc::new(BuildState {
                     result: Mutex::new(None),
@@ -417,7 +425,7 @@ impl McpServer {
                     started: AtomicBool::new(false),
                 });
                 sessions.insert(session_id.to_owned(), SessionEntry::Building(state));
-                queue.reserve()
+                Ok(queue.reserve())
             }
         }
     }
@@ -538,6 +546,15 @@ impl ServerHandler for McpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn session_admission_is_bounded_before_runtime_construction() {
+        let server = McpServer::new(None).unwrap();
+        for index in 0..MAX_SESSIONS {
+            server.reserve_queue(&format!("session-{index}")).unwrap();
+        }
+        assert!(server.reserve_queue("one-too-many").is_err());
+    }
+
     #[test]
     fn cancelled_reservation_does_not_block_the_session_queue() {
         let session = Arc::new(Session::with_queue(

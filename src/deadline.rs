@@ -14,6 +14,17 @@ pub(crate) fn enter(timeout: Option<Duration>) -> Guard {
     Guard(ACTIVE.replace(deadline))
 }
 
+/// Capture the caller's absolute deadline so work moved to another thread
+/// retains the same budget rather than receiving a fresh one.
+pub(crate) fn snapshot() -> Option<Instant> {
+    ACTIVE.with(Cell::get)
+}
+
+/// Enter a deadline captured by [`snapshot`].
+pub(crate) fn enter_snapshot(deadline: Option<Instant>) -> Guard {
+    Guard(ACTIVE.replace(deadline))
+}
+
 pub(crate) fn effective(requested: Duration) -> Option<Duration> {
     ACTIVE.with(|active| match active.get() {
         Some(deadline) => deadline

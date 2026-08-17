@@ -316,7 +316,7 @@ fn independent_sessions_overlap_and_reused_session_is_fifo() {
 local raw_text = sys.cli.text
 demo = {
   __allowed_cli_commands = {"sh"},
-  __schema = {namespace="demo",service="demo",functions={{name="pause",readonly=true,returns_contract="core.result"}}}
+  __schema = {namespace="demo",service="demo",functions={{name="pause",guarded=false,returns_contract="core.result"}}}
 }
 function demo.pause()
   local _, err = raw_text("sh", {"-c", "sleep 0.25"})

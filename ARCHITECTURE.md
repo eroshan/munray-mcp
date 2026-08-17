@@ -65,7 +65,7 @@ rmcp server + command routing (`main.rs`, `mcp.rs`)
  external tools    external/local APIs          local disk/RAM   Unix socket
 ```
 
-The executable uses a Tokio multi-thread runtime for the MCP server. MCP admission and execution use `spawn_blocking`: Lua VM construction and each serialized session execution run outside Tokio executor threads. Runtime-local background work uses a bounded four-worker executor.
+The executable uses a Tokio multi-thread runtime for the MCP server. MCP admission and execution use `spawn_blocking`: Lua VM construction and each serialized session execution run outside Tokio executor threads. Runtime-local task registries submit work to a lazily-created, process-wide bounded four-worker executor. Constructing an idle runtime creates no task-worker threads.
 
 Additional native threads are created for:
 
@@ -132,7 +132,7 @@ Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. 
 | Runtime/application | SQLite connection | Each runtime owns its mutex-protected SQLite connection. WAL coordinates concurrent runtimes and processes; dropping the runtime closes its connection. |
 | Process-global (bounded compatibility lookup) | command-secret registry | Holds at most 1,024 active command-secret definitions and prunes weak references when a runtime is dropped. |
 | `McpServer` | session map, service/store paths, TTL, optional logger | Shared across cloned server handlers. |
-| `Session` | one mutex-protected `LuaRuntime`, per-session FIFO queue, last-used time | Retained in the server map until lazily evicted; eviction cancels runtime tasks. |
+| `Session` | one mutex-protected `LuaRuntime`, per-session FIFO queue, last-used time | At most 64 retained MCP sessions; idle entries are lazily evicted and eviction cancels runtime tasks. |
 | `LuaRuntime` | Lua VM, output, mode, immutable function registry, Rust raw-authorization state, optional session environment, CLI allowlist, VFS, blobs, ingest | One per CLI invocation, service test, or MCP session. |
 | Runtime closures | task manager | Shared by raw task/transport functions in one runtime. |
 | Runtime | VFS `TempDir` and exposure bundles | Removed when their final owning references are dropped. |
@@ -151,7 +151,7 @@ The durable store is shared between MCP sessions. Trusted Lua globals, function 
 5. Execute the embedded modular trusted preload code, then load trusted service packs and restored snippets.
 6. Install Rust-created schema wrappers, each capturing immutable operation policy and original Lua function. Their RAII raw scope authorizes nested raw calls and iterator steps.
 7. Disable bootstrap authorization and retain direct raw access only for local CLI/test runtimes.
-8. For MCP runtimes, build a separate session `_ENV` containing pure Lua facilities and cloned public API tables. Raw/internal globals and unsafe standard libraries are omitted.
+8. For MCP runtimes, build a separate session `_ENV` containing pure Lua facilities and cloned public API tables. Raw/internal globals (including `sys`, regardless of schema metadata) and unsafe standard libraries are omitted.
 
 The modular preload files are the sole Lua bootstrap implementation. Their explicit load order in `runtime.rs` is the dependency order between core Lua namespaces.
 
@@ -223,7 +223,7 @@ On the first call for a session ID, the server records a building entry under th
 
 The runtime stores the MCP process ID in `__runtime.server_id`, which `ctx_init()` exposes for ingest workflows.
 
-Sessions expire after 30 minutes of inactivity, but cleanup is **lazy**: expiration is checked only while admitting an execution. There is no periodic cleanup loop and no explicit session-close API. An in-flight `Arc` reference prevents eviction.
+Sessions expire after 30 minutes of inactivity, but cleanup is **lazy**: expiration is checked only while admitting an execution. There is no periodic cleanup loop and no explicit session-close API. An in-flight `Arc` reference prevents eviction. Admission is capped at 64 retained sessions, including generated IDs for calls that omit `session_id`.
 
 ### 8.3 Same-session ordering
 
@@ -267,7 +267,7 @@ Before each execution the runtime:
 
 The hook checks every 10,000 Lua instructions. MCP supplies a timeout; the local CLI currently calls `execute` without an overall Lua timeout, so pure Lua code can run indefinitely there.
 
-The thread-local deadline constrains synchronous nested operations, including CLI capture, HTTP, blob capture, command secrets, task waits, and VFS ZIP subprocesses. Nested operations clamp their requested timeout to the active deadline. Task cancellation is additionally propagated to CLI and HTTP task loops.
+The thread-local deadline constrains synchronous nested operations, including CLI capture, HTTP, blob capture, command secrets, task waits, and VFS ZIP subprocesses. Nested operations clamp their requested timeout to the active deadline. Async task starts snapshot the caller's absolute deadline and restore it in the worker, so CLI/HTTP work cannot outlive the originating MCP deadline. Task cancellation is additionally propagated to CLI and HTTP task loops.
 
 ### 9.2 Output and return conversion
 
@@ -295,7 +295,7 @@ Mutation policy is never read from mutable Lua descriptors at call time. Session
 
 ### 10.2 Raw guard
 
-Every raw Rust callback is replaced with a Rust guard closure. The guard consults Rust-owned bootstrap/direct-access/depth state and returns `(nil, RAW_OUTSIDE_SCHEMA)` unless direct raw access is enabled or an RAII scope from a registered public wrapper is active. Iterator steps enter a separate Rust scope. Session environments do not expose `sys` at all.
+Every raw Rust callback is replaced with a Rust guard closure. The guard consults Rust-owned bootstrap/direct-access/depth state and returns `(nil, RAW_OUTSIDE_SCHEMA)` unless direct raw access is enabled or an RAII scope from a registered public wrapper is active. Iterator steps enter a separate Rust scope. Session environments do not expose `sys` at all, even if trusted legacy data added schema metadata to that raw table. Approved snippet bodies still execute in trusted globals and may call `sys.*` through their wrapper's raw scope.
 
 There is no Lua wrapper installer or Lua raw-context counter.
 
@@ -362,7 +362,7 @@ GraphQL uses HTTP POST and supports data or envelope response mode plus cursor/o
 
 ### 11.4 Background tasks
 
-Each runtime has one task registry. A task has a UUID, timestamps, cancellation flag, and one of four states: `running`, `completed`, `failed`, or `cancelled`.
+Each runtime has one task registry backed by the shared lazily-created four-worker executor. A task has a UUID, timestamps, cancellation flag, and one of four states: `running`, `completed`, `failed`, or `cancelled`.
 
 Current behavior:
 
@@ -396,7 +396,7 @@ The VFS provides directory creation/removal, text/blob writes, text reads, metad
 
 ZIP conversion uses the in-process `zip` reader. It rejects unsafe paths and enforces 1,000 entries, 100 MiB expanded bytes, a 100:1 compression-ratio limit, the active execution deadline between entries, preview limits, and the runtime VFS quota. Exposure bundles remain alive until the runtime drops.
 
-Blob bytes are held in an in-memory map and represented in Lua by userdata. The default per-capture limit is 200 MiB and a runtime-wide 512 MiB aggregate cap returns `BLOB_QUOTA_EXCEEDED`. VFS writes and ZIP extraction enforce a 512 MiB aggregate cap and return `VFS_QUOTA_EXCEEDED`; guarded `vfs.remove` reclaims VFS quota, and all runtime-local VFS/blob state is released at runtime teardown.
+Blob bytes are held in an in-memory map and represented in Lua by userdata. The default per-capture limit is 200 MiB and a runtime-wide 512 MiB aggregate cap returns `BLOB_QUOTA_EXCEEDED`. Each capture reserves its bounded buffer from that aggregate before CLI/HTTP bytes are read, so caller-controlled limits cannot allocate beyond the quota before rejection. VFS writes and ZIP extraction enforce a 512 MiB aggregate cap and return `VFS_QUOTA_EXCEEDED`; guarded `vfs.remove` reclaims VFS quota, and all runtime-local VFS/blob state is released at runtime teardown.
 
 ### 11.7 Ingest and local IPC
 
@@ -424,7 +424,7 @@ Generic KV rows retain JSON text, content type, timestamps, and an optional expi
 
 Complete snippet rows are restored during startup. The public `snippets.save` definition uses `namespace` and `name` (for example, `{namespace="math", name="fibonacci"}` installs `math.fibonacci`); the durable store uses an internal dotted identifier. Its `code` may be a function expression, a chunk that returns a function, or a named Lua function declaration. Function text is compiled in the global environment, namespaces are created dynamically, descriptors are attached, and security wrappers are reinstalled. Snippets default to `readonly = true` unless schema text says otherwise.
 
-Installing/deleting a snippet changes only the current Lua runtime immediately. Deleting the final snippet from a snippet-created namespace prunes that empty namespace, so it is no longer discoverable. Other existing sessions share its durable records but do not install/remove the corresponding Lua function until they are recreated or explicitly updated themselves.
+Installing/deleting a snippet changes only the current Lua runtime immediately. `sys` is reserved and cannot be a snippet namespace, although trusted snippet code may call `sys.*`. Deleting the final snippet from a snippet-created namespace prunes that empty namespace, removes its cloned root from the current MCP session environment, and makes it no longer discoverable. Other existing sessions share its durable records but do not install/remove the corresponding Lua function until they are recreated or explicitly updated themselves.
 
 ### 12.3 Function metrics and `stats`
 
@@ -464,11 +464,11 @@ Uncaught Lua/embedding errors are normalized at the MCP boundary into `EXECUTION
 | Lua hook interval | 10,000 instructions |
 | CLI pure-Lua timeout | None |
 | Session idle TTL | 30 min, lazily enforced |
-| Concurrent tasks | 10 per runtime |
+| Concurrent tasks | 10 per runtime; four process-wide worker threads, created on first task |
 | Task wait default | 295 s |
 | Task retention | No cleanup while registry remains alive |
 | Ingest payload | 64 MiB |
-| CLI/blob default stdout limit | 200 MiB |
+| CLI/blob default stdout limit | 200 MiB (also reserved against the 512 MiB blob quota before capture) |
 | Retained subprocess stderr | 1 MiB |
 | VFS text read | At most 1 MiB per call |
 | VFS listing default | 10,000 entries |

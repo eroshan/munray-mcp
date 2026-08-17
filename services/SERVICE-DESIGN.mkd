@@ -437,6 +437,7 @@ The core also exposes **opaque blob handles** for binary data capture. Blob byte
   - Captures **response body bytes** from an HTTP request.
   - `opts`: `{ query?:table, headers?:table, auth?:AuthRef, max_bytes?: number, timeout?: number(seconds) }`
   - Note: this does **not** JSON-decode.
+  - Capture buffers are reserved against the runtime-wide 512 MiB blob quota before bytes are read; a requested `max_bytes` larger than remaining quota is capped to that remaining reservation.
 - `sys.blob.len(blob) -> (n|nil, err)`
 
 ### 7.0.2 Virtual filesystem (VFS)

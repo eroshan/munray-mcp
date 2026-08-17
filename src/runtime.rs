@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::Path,
     sync::Arc,
@@ -50,6 +50,11 @@ fn record_metric(buffer: &Arc<Mutex<HashMap<String, f64>>>, operation: &str, out
         .or_default() += 1.0;
 }
 
+struct SessionEnvironment {
+    table: mlua::Table,
+    public_roots: HashSet<String>,
+}
+
 pub struct LuaRuntime {
     lua: Lua,
     output: Arc<Mutex<String>>,
@@ -60,7 +65,7 @@ pub struct LuaRuntime {
     raw_authorization: Arc<Mutex<RawAuthorization>>,
     function_registry: Arc<Mutex<HashMap<String, RegisteredFunction>>>,
     metric_buffer: Arc<Mutex<HashMap<String, f64>>>,
-    session_env: Arc<Mutex<Option<mlua::Table>>>,
+    session_env: Arc<Mutex<Option<SessionEnvironment>>>,
     _vfs: Arc<tempfile::TempDir>,
     _exposures: Arc<Mutex<Vec<tempfile::TempDir>>>,
     _blobs: crate::blob::BlobStore,
@@ -218,6 +223,15 @@ impl LuaRuntime {
         store: crate::storage::Store,
     ) -> Result<()> {
         let globals = self.lua.globals();
+        // Keep the Lua discovery validator aligned with the checked-in JSON
+        // Schema instead of duplicating its required/property declarations.
+        let capability_schema: JsonValue =
+            serde_json::from_str(include_str!("assets/capabilities.schema.json"))
+                .expect("embedded capabilities schema must be valid JSON");
+        globals.set(
+            "__capabilities_schema",
+            self.lua.to_value(&capability_schema)?,
+        )?;
         let output = self.output.clone();
         globals.set(
             "print",
@@ -615,7 +629,7 @@ impl LuaRuntime {
         _store: crate::storage::Store,
         metric_buffer: Arc<Mutex<HashMap<String, f64>>>,
         registry: Arc<Mutex<HashMap<String, RegisteredFunction>>>,
-        session_env: Arc<Mutex<Option<mlua::Table>>>,
+        session_env: Arc<Mutex<Option<SessionEnvironment>>>,
     ) -> Result<()> {
         let globals = lua.globals();
         let mut namespaces = Vec::new();
@@ -650,9 +664,9 @@ impl LuaRuntime {
                 let Ok(original) = namespace.get::<mlua::Function>(name.as_str()) else {
                     continue;
                 };
-                let guarded = descriptor
-                    .get::<Option<bool>>("guarded")?
-                    .unwrap_or(!descriptor.get::<Option<bool>>("readonly")?.unwrap_or(true));
+                let guarded = descriptor.get::<bool>("guarded").map_err(|_| {
+                    anyhow::anyhow!("{operation} schema must declare guarded as a boolean")
+                })?;
                 let iterator = descriptor
                     .get::<Option<String>>("returns_contract")?
                     .as_deref()
@@ -797,7 +811,10 @@ impl LuaRuntime {
     }
 
     fn install_session_environment(&self) -> Result<()> {
-        *self.session_env.lock() = Some(self.lua.create_table()?);
+        *self.session_env.lock() = Some(SessionEnvironment {
+            table: self.lua.create_table()?,
+            public_roots: HashSet::new(),
+        });
         refresh_session_environment(&self.lua, &self.session_env)
     }
 
@@ -866,8 +883,8 @@ impl LuaRuntime {
         }
         let _deadline = crate::deadline::enter(timeout);
         let mut chunk = self.lua.load(code).set_name(chunk_name);
-        if let Some(environment) = self.session_env.lock().clone() {
-            chunk = chunk.set_environment(environment);
+        if let Some(environment) = self.session_env.lock().as_ref() {
+            chunk = chunk.set_environment(environment.table.clone());
         }
         let evaluation: mlua::Result<MultiValue> = chunk.eval();
         self.lua.remove_hook();
@@ -1042,8 +1059,15 @@ fn mutation_blocked(lua: &Lua, operation: &str) -> mlua::Result<MultiValue> {
     Ok(MultiValue::from_vec(vec![Value::Nil, Value::Table(error)]))
 }
 
-fn refresh_session_environment(lua: &Lua, holder: &Arc<Mutex<Option<mlua::Table>>>) -> Result<()> {
-    let Some(environment) = holder.lock().clone() else {
+fn refresh_session_environment(
+    lua: &Lua,
+    holder: &Arc<Mutex<Option<SessionEnvironment>>>,
+) -> Result<()> {
+    let Some((environment, previous_roots)) = holder
+        .lock()
+        .as_ref()
+        .map(|environment| (environment.table.clone(), environment.public_roots.clone()))
+    else {
         return Ok(());
     };
     let globals = lua.globals();
@@ -1089,6 +1113,10 @@ fn refresh_session_environment(lua: &Lua, holder: &Arc<Mutex<Option<mlua::Table>
     for pair in globals.pairs::<String, Value>() {
         let (name, value) = pair?;
         if name.starts_with('_')
+            // `sys` is never public, even if an old persisted snippet added
+            // schema metadata to it. Snippet bodies remain trusted and can use
+            // sys.* through their global environment, but MCP code cannot.
+            || name == "sys"
             || name == "errutil"
             || name == "test"
             || matches!(
@@ -1102,6 +1130,15 @@ fn refresh_session_environment(lua: &Lua, holder: &Arc<Mutex<Option<mlua::Table>
             roots.push((name, value));
         }
     }
+    let current_roots = roots
+        .iter()
+        .map(|(name, _)| name.clone())
+        .collect::<HashSet<_>>();
+    // Preserve globals created by session code while removing only stale API
+    // roots cloned by an earlier refresh.
+    for name in previous_roots.difference(&current_roots) {
+        environment.raw_set(name.as_str(), Value::Nil)?;
+    }
     for (name, value) in roots {
         let mut seen = Vec::new();
         environment.set(name, clone_public_value(lua, value, &mut seen)?)?;
@@ -1112,7 +1149,9 @@ fn refresh_session_environment(lua: &Lua, holder: &Arc<Mutex<Option<mlua::Table>
     ] {
         environment.raw_set(name, Value::Nil)?;
     }
-    *holder.lock() = Some(environment);
+    if let Some(session_environment) = holder.lock().as_mut() {
+        session_environment.public_roots = current_roots;
+    }
     Ok(())
 }
 

@@ -152,10 +152,36 @@ local function is_top_level_namespace(ns)
 	return type(ns) == "string" and ns ~= "" and ns:find(".", 1, true) == nil
 end
 
+-- Rust provides the checked-in JSON Schema during bootstrap. Keep the
+-- discovery validator's required and additional-property rules sourced from it
+-- so the public contract cannot silently diverge from this Lua implementation.
+local CAPABILITY_SCHEMA = rawget(_G, "__capabilities_schema")
+local function schema_definition(name)
+	if type(CAPABILITY_SCHEMA) ~= "table" then return nil end
+	if name == nil then return CAPABILITY_SCHEMA end
+	return type(CAPABILITY_SCHEMA["$defs"]) == "table" and CAPABILITY_SCHEMA["$defs"][name] or nil
+end
+
+local function validate_declared_fields(value, definition, path)
+	if type(definition) ~= "table" then return false, "internal capabilities schema is unavailable" end
+	for _, key in ipairs(definition.required or {}) do
+		if value[key] == nil then return false, "missing required field: " .. path .. key end
+	end
+	local properties = definition.properties
+	if definition.additionalProperties == false and type(properties) == "table" then
+		for key, _ in pairs(value) do
+			if properties[key] == nil then return false, "unknown property: " .. path .. key end
+		end
+	end
+	return true, nil
+end
+
 local function validate_schema(s)
 	if type(s) ~= "table" then
 		return false, "__schema must be a table"
 	end
+	local ok, declared_err = validate_declared_fields(s, schema_definition(nil), "__schema.")
+	if not ok then return false, declared_err end
 	if type(s.namespace) ~= "string" or s.namespace == "" then
 		return false, "__schema.namespace must be a non-empty string"
 	end
@@ -179,12 +205,8 @@ local function validate_schema(s)
 			return false, "__schema.functions[" .. i .. "] must be a table"
 		end
 
-		local required = { "name", "signature", "returns_contract", "description", "returns_typed" }
-		for _, k in ipairs(required) do
-			if fn[k] == nil then
-				return false, "missing required field: functions[" .. i .. "]." .. k
-			end
-		end
+		local ok, declared_err = validate_declared_fields(fn, schema_definition("FunctionSchema"), "functions[" .. i .. "].")
+		if not ok then return false, declared_err end
 
 		if type(fn.name) ~= "string" or fn.name == "" then
 			return false, "functions[" .. i .. "].name must be a non-empty string"
@@ -201,11 +223,8 @@ local function validate_schema(s)
 		if type(fn.description) ~= "string" then
 			return false, "functions[" .. i .. "].description must be a string"
 		end
-		if fn.guarded ~= nil and type(fn.guarded) ~= "boolean" then
+		if type(fn.guarded) ~= "boolean" then
 			return false, "functions[" .. i .. "].guarded must be boolean"
-		end
-		if fn.guarded == nil and type(fn.readonly) ~= "boolean" then
-			return false, "functions[" .. i .. "] must declare guarded as boolean"
 		end
 
 		if fn.params ~= nil and type(fn.params) ~= "table" then
@@ -469,7 +488,7 @@ local function build_namespace_tree(value_builder, opts)
 end
 
 local function is_guarded(fn)
-	return fn.guarded == true or fn.readonly == false
+	return fn.guarded == true
 end
 
 -- Private implementation for ctx_init(opts).

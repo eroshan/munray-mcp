@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicBool, Ordering},
         mpsc::{SyncSender, TrySendError, sync_channel},
     },
@@ -26,7 +26,6 @@ type Job = Box<dyn FnOnce() + Send + 'static>;
 #[derive(Clone)]
 pub(crate) struct Manager {
     tasks: Arc<Mutex<HashMap<String, Task>>>,
-    jobs: SyncSender<Job>,
 }
 
 struct Task {
@@ -63,9 +62,11 @@ impl TaskFailure {
     }
 }
 
-impl Manager {
-    pub(crate) fn new() -> Self {
-        let tasks = Arc::new(Mutex::new(HashMap::<String, Task>::new()));
+/// Process-wide, lazily-created executor. Runtime creation must not allocate
+/// native worker threads: MCP sessions are client-controlled and may be idle.
+fn executor() -> &'static SyncSender<Job> {
+    static EXECUTOR: OnceLock<SyncSender<Job>> = OnceLock::new();
+    EXECUTOR.get_or_init(|| {
         let (jobs, receiver) = sync_channel::<Job>(QUEUE_CAPACITY);
         let receiver = Arc::new(Mutex::new(receiver));
         for _ in 0..WORKERS {
@@ -80,7 +81,15 @@ impl Manager {
                 }
             });
         }
-        Self { tasks, jobs }
+        jobs
+    })
+}
+
+impl Manager {
+    pub(crate) fn new() -> Self {
+        Self {
+            tasks: Arc::new(Mutex::new(HashMap::<String, Task>::new())),
+        }
     }
 
     pub(crate) fn start<F>(&self, function: F) -> Result<String, String>
@@ -112,7 +121,11 @@ impl Manager {
         }
         let tasks = Arc::clone(&self.tasks);
         let task_id = id.clone();
+        // Deadline state is thread-local. Snapshot it while this raw callback
+        // still runs on the caller's thread, then restore it in the worker.
+        let deadline = crate::deadline::snapshot();
         let job: Job = Box::new(move || {
+            let _deadline = crate::deadline::enter_snapshot(deadline);
             let result = function(Arc::clone(&cancellation));
             let mut tasks = tasks.lock();
             let Some(task) = tasks.get_mut(&task_id) else {
@@ -139,7 +152,7 @@ impl Manager {
                 Err(error) => TaskState::Failed(error),
             };
         });
-        match self.jobs.try_send(job) {
+        match executor().try_send(job) {
             Ok(()) => Ok(id),
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                 self.tasks.lock().remove(&id);

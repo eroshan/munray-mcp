@@ -55,6 +55,27 @@ fn validate_rejects_a_pack_without_the_required_root_entrypoint() {
 }
 
 #[test]
+fn validate_rejects_properties_disallowed_by_the_capability_json_schema() {
+    let services = tempfile::tempdir().unwrap();
+    let src = services.path().join("broken/src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("init.lua"),
+        valid_schema().replace("guarded = false,", "guarded = false, mutating = true,"),
+    )
+    .unwrap();
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["--svc-dir", services.path().to_str().unwrap(), "validate"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "unknown property: functions[1].mutating",
+        ));
+}
+
+#[test]
 fn validate_fails_when_capability_discovery_rejects_a_schema() {
     let services = tempfile::tempdir().unwrap();
     let src = services.path().join("broken/src");
