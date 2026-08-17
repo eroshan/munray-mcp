@@ -16,7 +16,7 @@ target/release/munray-mcp run script.lua
 target/release/munray-mcp mcp --svc-dir ./services
 
 # Keep store values and saved Lua snippets across restarts.
-target/release/munray-mcp --store-path ~/.local/share/munray-mcp/store.json \
+target/release/munray-mcp --store-path ~/.local/share/munray-mcp/store.db \
   --svc-dir ./services mcp
 
 # Push text into an existing MCP session (server id is the MCP process id).
@@ -41,11 +41,11 @@ make mcp
 
 `--svc-dir` points at the existing service-pack tree. Rust replaces the
 host application; it does not translate or alter service Lua source.
-The store defaults to `$MUNRAY_MCP_HOME/store.json`, where `MUNRAY_MCP_HOME`
-defaults to `$HOME/.local/share/munray-mcp`. `--store-path` (or
-`MUNRAY_MCP_STORE_PATH`) overrides it. Saved functions, schemas, examples, and
-function usage metrics are restored on startup; cache entries intentionally
-remain process-local.
+The SQLite store defaults to `$MUNRAY_MCP_HOME/store.db`, where
+`MUNRAY_MCP_HOME` defaults to `$HOME/.local/share/munray-mcp`. `--store-path`
+(or `MUNRAY_MCP_STORE_PATH`) overrides it. Saved functions, schemas, examples,
+metrics, and expiring KV values are durable and shared by runtimes using the
+same store path.
 
 The MCP tools are `runLuaScript` (read-only) and
 `runGuardedLuaScript` (guarded). Supplying the same `session_id` keeps
@@ -63,7 +63,7 @@ and ingest. Unix ingest sockets are created with owner-only permissions.
 | Option | Environment | Purpose |
 | --- | --- | --- |
 | `--svc-dir` | `MUNRAY_MCP_SVC_DIR` | Service-pack directory; defaults to `$MUNRAY_MCP_HOME/services` |
-| `--store-path` | `MUNRAY_MCP_STORE_PATH` | Durable store, saved snippets, and usage metrics; defaults to `$MUNRAY_MCP_HOME/store.json` |
+| `--store-path` | `MUNRAY_MCP_STORE_PATH` | SQLite durable store, saved snippets, expiring KV values, and usage metrics; defaults to `$MUNRAY_MCP_HOME/store.db` |
 | `--logs-dir` | `MUNRAY_MCP_LOGS_DIR` | Owner-only JSONL execution logging |
 
 `munray-mcp stats` reports wrapped public function availability and usage metrics

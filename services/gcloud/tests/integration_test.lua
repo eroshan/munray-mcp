@@ -13,11 +13,11 @@ local function test_project_list()
 end
 
 local function test_capabilities()
-	local schema, err = capabilities.schema("gcloud.project")
+	local schema, err = schema("gcloud.project")
 	assert(err == nil, "schema lookup failed")
 	assert(schema.namespace == "gcloud.project", "wrong namespace")
 	assert(#schema.functions > 0, "no functions in schema")
-	print("✓ capabilities.schema('gcloud.project') works")
+	print("✓ schema('gcloud.project') works")
 
 end
 -- Run tests

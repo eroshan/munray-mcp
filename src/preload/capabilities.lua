@@ -1,8 +1,6 @@
 -- preload/capabilities.lua
 -- Lua-owned introspection built from Lua `__schema` tables.
 
-capabilities = {}
-
 -- Contract naming policy:
 -- - Schemas use unversioned names: core.iter, core.result, core.error
 local ITER_CONTRACT = {
@@ -27,7 +25,7 @@ local RESULT_CONTRACT = {
 	ok = "(result, nil)",
 	err = "(nil, Error)",
 	error_type = "core.error",
-	hint = "Use capabilities.examples(<namespace>) for runnable usage",
+	hint = "Use examples(<namespace>) for runnable usage",
 	description = "(val, err). Always check err first.",
 	pattern = "val, err = fn(...)" ,
 	example = "diffs, err = gitlab.mr.diff(repo, iid, {})",
@@ -121,13 +119,11 @@ if type(os) == "table" and type(os.getenv) == "function" then
 	end
 end
 
--- Clear discovery caches so new namespaces/functions become visible.
--- Useful for dynamic snippet installs within a running session.
-function capabilities.invalidate()
+-- Dynamic snippet installation calls this trusted internal hook before the
+-- next discovery request. It is intentionally not a public Lua API.
+function _invalidate_capabilities()
 	_discovered = nil
 	_warnings = {}
-	capabilities._warnings = _warnings
-	return true, nil
 end
 
 local stderr_write = nil
@@ -269,7 +265,6 @@ end
 
 local function discover()
 	if _discovered ~= nil then
-		capabilities._warnings = _discovered.warnings or {}
 		return _discovered
 	end
 
@@ -283,7 +278,6 @@ local function discover()
 
 	_warnings = {}
 	out.warnings = _warnings
-	capabilities._warnings = _warnings
 
 	-- Discover roots from _G (global namespace) - look for tables with __schema or any root present in _examples
 	local root_set = {}
@@ -478,8 +472,8 @@ local function is_guarded(fn)
 	return fn.guarded == true or fn.readonly == false
 end
 
--- capabilities.ai_context(opts)
-function capabilities.ai_context(_)
+-- Private implementation for ctx_init(opts).
+local function ai_context(_)
 	local d = discover()
 
 	local function contract_summary(contract_name)
@@ -513,8 +507,8 @@ function capabilities.ai_context(_)
 
 	local hints = {
 		global = {
-			"Use capabilities.schema(target) for types/docs",
-			"Use capabilities.examples(target) for code",
+			"Use schema(target) for types/docs",
+			"Use examples(target) for code",
 			"Ops ending with * are guarded; require guarded mode"
 		}
 	}
@@ -553,9 +547,8 @@ function capabilities.ai_context(_)
 			opts = "filters/config table; optional args are marked with ?"
 		},
 		discovery = {
-			schema = "capabilities.schema(target)",
-			examples = "capabilities.examples(target)",
-			invalidate = "capabilities.invalidate()",
+			schema = "schema(target)",
+			examples = "examples(target)",
 			target_format = {
 				pattern = "<service> | <service>.<resource>",
 				note = "Use target names from the namespaces listed in this response."
@@ -568,8 +561,8 @@ function capabilities.ai_context(_)
 	}
 end
 
--- capabilities.schema(namespace)
-function capabilities.schema(namespace)
+-- schema(namespace)
+function schema(namespace)
 	local d = discover()
 	local schema = d.schemas[namespace]
 
@@ -603,31 +596,13 @@ function capabilities.schema(namespace)
 	return result
 end
 
--- capabilities._raw_schemas()
--- Returns discovered schemas as a raw map: namespace -> __schema table (including any extra keys).
--- This is intended for core validation tooling (e.g. `munray-mcp validate`).
-function capabilities._raw_schemas()
-	local d = discover()
-	return d.schemas
+-- Hidden bridge for Rust validation. It is not copied into MCP session environments.
+function _raw_schemas()
+	return discover().schemas
 end
 
--- capabilities.schemas(opts)
-function capabilities.schemas(opts)
-	opts = opts or {}
-
-	return build_namespace_tree(function(fn)
-		return {
-			signature = fn.signature,
-			guarded = is_guarded(fn),
-			description = fn.description,
-			returns_contract = fn.returns_contract,
-			yields = fn.yields,
-		}
-	end, opts)
-end
-
--- capabilities.examples(namespace)
-function capabilities.examples(namespace)
+-- examples(namespace)
+function examples(namespace)
 	if type(namespace) ~= "string" then
 		return nil
 	end
@@ -666,4 +641,10 @@ function capabilities.examples(namespace)
 	end
 
 	return nil
+end
+
+-- Public discovery entrypoint. The implementation remains private so session
+-- code can use discovery without receiving cache-control internals.
+function ctx_init(opts)
+	return ai_context(opts)
 end

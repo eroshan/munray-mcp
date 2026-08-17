@@ -24,9 +24,8 @@
     "opts": "filters/config table; optional args are marked with ?"
   },
   "discovery": {
-    "examples": "capabilities.examples(target)",
-    "invalidate": "capabilities.invalidate()",
-    "schema": "capabilities.schema(target)",
+    "examples": "examples(target)",
+    "schema": "schema(target)",
     "target_format": {
       "note": "Use target names from the namespaces listed in this response.",
       "pattern": "<service> | <service>.<resource>"
@@ -34,8 +33,8 @@
   },
   "hints": {
     "global": [
-      "Use capabilities.schema(target) for types/docs",
-      "Use capabilities.examples(target) for code",
+      "Use schema(target) for types/docs",
+      "Use examples(target) for code",
       "Ops ending with * are guarded; require guarded mode"
     ],
     "namespaces": {

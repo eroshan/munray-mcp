@@ -18,14 +18,14 @@ test.assert_eq(gcloud.project.__schema.service, "gcloud", "service should be gcl
 test.assert(#gcloud.project.__schema.functions > 0, "should have at least one function")
 
 
--- Test that capabilities.schema works
-local schema, err = capabilities.schema("gcloud.project")
-test.assert_nil(err, "capabilities.schema should not error")
-test.assert_not_nil(schema, "schema should not be nil")
-test.assert_eq(schema.namespace, "gcloud.project", "schema namespace should match")
+-- Test that schema works
+local project_schema, err = schema("gcloud.project")
+test.assert_nil(err, "schema should not error")
+test.assert_not_nil(project_schema, "schema should not be nil")
+test.assert_eq(project_schema.namespace, "gcloud.project", "schema namespace should match")
 
 local project_list_fn = nil
-for _, fn in ipairs(schema.functions) do
+for _, fn in ipairs(project_schema.functions) do
 	if fn.name == "list" then
 		project_list_fn = fn
 		break
@@ -62,9 +62,9 @@ test.assert_eq(gcloud.bigquery.__schema.namespace, "gcloud.bigquery", "namespace
 test.assert_eq(gcloud.bigquery.__schema.service, "gcloud", "service should be gcloud")
 test.assert(#gcloud.bigquery.__schema.functions > 0, "should have at least one function")
 
--- Test that capabilities.schema works
-local bigquery_schema, bigquery_err = capabilities.schema("gcloud.bigquery")
-test.assert_nil(bigquery_err, "capabilities.schema should not error for gcloud.bigquery")
+-- Test that schema works
+local bigquery_schema, bigquery_err = schema("gcloud.bigquery")
+test.assert_nil(bigquery_err, "schema should not error for gcloud.bigquery")
 test.assert_not_nil(bigquery_schema, "bigquery schema should not be nil")
 test.assert_eq(bigquery_schema.namespace, "gcloud.bigquery", "schema namespace should match for gcloud.bigquery")
 
@@ -131,9 +131,9 @@ test.assert_eq(gcloud.logs.__schema.namespace, "gcloud.logs", "namespace should 
 test.assert_eq(gcloud.logs.__schema.service, "gcloud", "service should be gcloud")
 test.assert(#gcloud.logs.__schema.functions > 0, "should have at least one function")
 
--- Test that capabilities.schema works
-local logs_schema, logs_err = capabilities.schema("gcloud.logs")
-test.assert_nil(logs_err, "capabilities.schema should not error for gcloud.logs")
+-- Test that schema works
+local logs_schema, logs_err = schema("gcloud.logs")
+test.assert_nil(logs_err, "schema should not error for gcloud.logs")
 test.assert_not_nil(logs_schema, "logs schema should not be nil")
 test.assert_eq(logs_schema.namespace, "gcloud.logs", "schema namespace should match for gcloud.logs")
 
@@ -160,8 +160,8 @@ test.assert_not_nil(logs_fn.async.usage, "should have usage guidance")
 
 test.describe("GCloud Service - AI Context")
 
--- Test that gcloud appears in capabilities.ai_context (v2.0 compact format)
-local context = capabilities.ai_context()
+-- Test that gcloud appears in ctx_init (v2.0 compact format)
+local context = ctx_init()
 test.assert_eq(type(context), "table", "ai_context should return a table")
 
 test.assert_not_nil(context.discovery, "ai_context should include discovery")

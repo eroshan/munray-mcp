@@ -46,10 +46,15 @@ pub(crate) fn register(lua: &Lua, raw: &Table, tasks: crate::tasks::Manager) -> 
         lua.create_function(
             move |lua, (method, base_url, path, opts): (String, String, String, Option<Table>)| {
                 let opts = options(lua, opts)?;
-                match http_tasks.start(move |_| {
-                    request(&method, &base_url, &path, &opts).map_err(|error| {
-                        crate::tasks::TaskFailure::new(error.code, error.message, error.recoverable)
-                    })
+                match http_tasks.start(move |cancellation| {
+                    request_cancellable(&method, &base_url, &path, &opts, Some(&cancellation))
+                        .map_err(|error| {
+                            crate::tasks::TaskFailure::new(
+                                error.code,
+                                error.message,
+                                error.recoverable,
+                            )
+                        })
                 }) {
                     Ok(id) => Ok((Value::String(lua.create_string(&id)?), Value::Nil)),
                     Err(error) => lua_error(lua, "TOO_MANY_TASKS", error, true),
@@ -89,10 +94,15 @@ pub(crate) fn register(lua: &Lua, raw: &Table, tasks: crate::tasks::Manager) -> 
         lua.create_function(
             move |lua, (base_url, document, opts): (String, String, Option<Table>)| {
                 let opts = options(lua, opts)?;
-                match tasks.start(move |_| {
-                    graphql_request(&base_url, &document, opts).map_err(|error| {
-                        crate::tasks::TaskFailure::new(error.code, error.message, error.recoverable)
-                    })
+                match tasks.start(move |cancellation| {
+                    graphql_request_cancellable(&base_url, &document, opts, Some(&cancellation))
+                        .map_err(|error| {
+                            crate::tasks::TaskFailure::new(
+                                error.code,
+                                error.message,
+                                error.recoverable,
+                            )
+                        })
                 }) {
                     Ok(id) => Ok((Value::String(lua.create_string(&id)?), Value::Nil)),
                     Err(error) => lua_error(lua, "TOO_MANY_TASKS", error, true),
@@ -106,7 +116,16 @@ pub(crate) fn register(lua: &Lua, raw: &Table, tasks: crate::tasks::Manager) -> 
 fn graphql_request(
     base_url: &str,
     document: &str,
+    opts: Map<String, JsonValue>,
+) -> Result<JsonValue, TransportError> {
+    graphql_request_cancellable(base_url, document, opts, None)
+}
+
+fn graphql_request_cancellable(
+    base_url: &str,
+    document: &str,
     mut opts: Map<String, JsonValue>,
+    cancellation: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<JsonValue, TransportError> {
     let path = opts
         .remove("path")
@@ -122,7 +141,7 @@ fn graphql_request(
         "body".to_owned(),
         json!({"query":document,"variables":variables,"operationName":operation_name}),
     );
-    let envelope = request("POST", base_url, &path, &opts)?;
+    let envelope = request_cancellable("POST", base_url, &path, &opts, cancellation)?;
     if envelope
         .get("errors")
         .is_some_and(|errors| !errors.as_array().is_none_or(Vec::is_empty))
@@ -674,6 +693,23 @@ fn request(
     path: &str,
     opts: &Map<String, JsonValue>,
 ) -> Result<JsonValue, TransportError> {
+    request_cancellable(method, base_url, path, opts, None)
+}
+
+fn request_cancellable(
+    method: &str,
+    base_url: &str,
+    path: &str,
+    opts: &Map<String, JsonValue>,
+    cancellation: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<JsonValue, TransportError> {
+    if cancellation.is_some_and(|cancelled| cancelled.load(std::sync::atomic::Ordering::Acquire)) {
+        return Err(TransportError {
+            code: "CANCELLED".into(),
+            message: "HTTP task cancelled".into(),
+            recoverable: false,
+        });
+    }
     let method = Method::from_bytes(method.as_bytes()).map_err(validation)?;
     let mut url = compose_url(base_url, path)?;
     append_query(&mut url, opts.get("query"));
@@ -691,6 +727,15 @@ fn request(
     let mut rate_retries = 0;
     let mut auth_retries = 0;
     let (status, body) = loop {
+        if cancellation
+            .is_some_and(|cancelled| cancelled.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Err(TransportError {
+                code: "CANCELLED".into(),
+                message: "HTTP task cancelled".into(),
+                recoverable: false,
+            });
+        }
         let mut builder = client
             .request(method.clone(), url.clone())
             .header("Accept", "application/json");
@@ -728,7 +773,19 @@ fn request(
                     ));
                 }
                 rate_retries += 1;
-                thread::sleep(wait);
+                let started = std::time::Instant::now();
+                while started.elapsed() < wait {
+                    if cancellation.is_some_and(|cancelled| {
+                        cancelled.load(std::sync::atomic::Ordering::Acquire)
+                    }) {
+                        return Err(TransportError {
+                            code: "CANCELLED".into(),
+                            message: "HTTP task cancelled".into(),
+                            recoverable: false,
+                        });
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
                 continue;
             }
         }

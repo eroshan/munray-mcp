@@ -15,7 +15,7 @@ test.assert_not_nil(gitlab.commit, "gitlab.commit namespace should exist")
 test.describe("GitLab Service - Schema Discovery")
 
 -- Test that schemas are registered
-local schemas = capabilities.schemas({ namespace = "gitlab" })
+local schemas = ctx_init().namespaces
 test.assert_not_nil(schemas.gitlab, "gitlab schemas should be registered")
 test.assert_not_nil(schemas.gitlab.mr, "gitlab.mr schema should exist")
 test.assert_not_nil(schemas.gitlab.pipeline, "gitlab.pipeline schema should exist")
@@ -27,7 +27,7 @@ test.assert_not_nil(schemas.gitlab.commit, "gitlab.commit schema should exist")
 test.describe("GitLab Service - Individual Schema Details")
 
 -- Test gitlab.mr schema
-local mr_schema = capabilities.schema("gitlab.mr")
+local mr_schema = schema("gitlab.mr")
 test.assert_not_nil(mr_schema, "gitlab.mr schema should be retrievable")
 test.assert_eq(mr_schema.namespace, "gitlab.mr", "mr schema namespace should be correct")
 test.assert_eq(mr_schema.service, "gitlab", "mr schema service should be gitlab")
@@ -67,7 +67,7 @@ test.assert(has_update, "mr schema should include update function")
 test.describe("GitLab Service - Examples")
 
 -- Test that examples are available
-local mr_examples = capabilities.examples("gitlab.mr")
+local mr_examples = examples("gitlab.mr")
 test.assert_not_nil(mr_examples, "gitlab.mr examples should exist")
 test.assert(type(mr_examples) == "string", "examples should be a string")
 test.assert(#mr_examples > 0, "examples should not be empty")
@@ -75,7 +75,7 @@ test.assert(#mr_examples > 0, "examples should not be empty")
 test.describe("GitLab Service - AI Context")
 
 -- Test that gitlab appears in ai_context (v2.0 compact format)
-local context = capabilities.ai_context()
+local context = ctx_init()
 test.assert_not_nil(context, "ai_context should return a table")
 test.assert_not_nil(context.namespaces, "ai_context should have namespaces field")
 test.assert_not_nil(context.namespaces.gitlab, "ai_context should include gitlab")
@@ -103,7 +103,7 @@ test.assert_eq(client.project_lookup_path("group/project"), "projects/group%2Fpr
 
 test.describe("GitLab Service - Repo Tree")
 
-local repo_schema = capabilities.schema("gitlab.repo")
+local repo_schema = schema("gitlab.repo")
 test.assert_not_nil(repo_schema, "gitlab.repo schema should exist")
 
 local has_tree = false
@@ -167,7 +167,7 @@ test.assert_eq(
 test.describe("GitLab Service - Tier 1 Features: Job Play")
 
 -- Test Job Play schema
-local job_schema = capabilities.schema("gitlab.job")
+local job_schema = schema("gitlab.job")
 test.assert_not_nil(job_schema, "gitlab.job schema should exist")
 
 local has_play = false
@@ -197,7 +197,7 @@ test.assert_eq(type(gitlab.job.artifact_download), "function", "gitlab.job.artif
 test.describe("GitLab Service - Tier 1 Features: Pipeline Jobs Filtering")
 
 -- Test Pipeline Jobs Filtering schema
-local pipeline_schema = capabilities.schema("gitlab.pipeline")
+local pipeline_schema = schema("gitlab.pipeline")
 test.assert_not_nil(pipeline_schema, "gitlab.pipeline schema should exist")
 
 local has_filtering_in_pipeline = false
@@ -261,7 +261,7 @@ test.assert(has_job_pipeline, "job.pipeline function should exist in schema")
 test.assert_eq(type(gitlab.job.pipeline), "function", "gitlab.job.pipeline should be a function")
 
 -- Test search.find (renamed from search.group)
-local search_schema = capabilities.schema("gitlab.search")
+local search_schema = schema("gitlab.search")
 test.assert_not_nil(search_schema, "gitlab.search schema should exist")
 
 local has_find = false

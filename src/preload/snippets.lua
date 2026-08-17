@@ -145,7 +145,7 @@ function snippets.save(definition)
     dynamic[normalized.path] = nil
     return nil, persist_err
   end
-  capabilities.invalidate()
+  _invalidate_capabilities()
   return persisted, nil
 end
 
@@ -188,7 +188,7 @@ function snippets.delete(namespace, name)
     dynamic[path] = nil
     prune_empty_namespaces(path)
   end
-  if deleted then capabilities.invalidate() end
+  if deleted then _invalidate_capabilities() end
   return deleted, nil
 end
 

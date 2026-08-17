@@ -7,12 +7,12 @@
 repo = "group/project"
 
 -- Discover available namespaces/functions
-local gitlab_schema, gitlab_schema_err = capabilities.schema("gitlab")
+local gitlab_schema, gitlab_schema_err = schema("gitlab")
 if gitlab_schema_err then error(gitlab_schema_err) end
 print(json.encode(gitlab_schema, true))
 
 -- Inspect a specific namespace when examples do not cover what you need
-local repo_schema, repo_schema_err = capabilities.schema("gitlab.repo")
+local repo_schema, repo_schema_err = schema("gitlab.repo")
 if repo_schema_err then error(repo_schema_err) end
 print("gitlab.repo functions:", #repo_schema.functions)
 

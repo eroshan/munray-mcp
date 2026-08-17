@@ -6,7 +6,7 @@ test.assert_eq(type(confluence.search.pages), "function", "confluence.search.pag
 
 test.describe("Confluence Search - Schema Discovery")
 
-local schema = capabilities.schema("confluence.search")
+local schema = schema("confluence.search")
 test.assert_not_nil(schema, "confluence.search schema should exist")
 test.assert_eq(schema.namespace, "confluence.search", "schema namespace should be correct")
 test.assert_eq(schema.service, "confluence", "schema service should be confluence")

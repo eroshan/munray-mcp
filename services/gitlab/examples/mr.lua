@@ -12,7 +12,7 @@ repo = "group/project"
 mr_iid = 123
 
 -- Inspect schema when you need signatures or return contracts
-local mr_schema, schema_err = capabilities.schema("gitlab.mr")
+local mr_schema, schema_err = schema("gitlab.mr")
 if schema_err then error(schema_err) end
 print("gitlab.mr functions:", #mr_schema.functions)
 

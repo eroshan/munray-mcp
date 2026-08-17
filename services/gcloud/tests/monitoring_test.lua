@@ -21,8 +21,8 @@ test.assert_eq(type(gcloud.monitoring.policy.describe), "function", "gcloud.moni
 test.assert_eq(type(gcloud.monitoring.descriptor.list), "function", "gcloud.monitoring.descriptor.list should be a function")
 test.assert_eq(type(gcloud.monitoring.series.list), "function", "gcloud.monitoring.series.list should be a function")
 
-local alert_schema, alert_err = capabilities.schema("gcloud.monitoring.alert")
-test.assert_nil(alert_err, "capabilities.schema should not error for gcloud.monitoring.alert")
+local alert_schema, alert_err = schema("gcloud.monitoring.alert")
+test.assert_nil(alert_err, "schema should not error for gcloud.monitoring.alert")
 test.assert_not_nil(alert_schema, "alert schema should not be nil")
 test.assert_eq(alert_schema.namespace, "gcloud.monitoring.alert", "alert schema namespace should match")
 
@@ -35,8 +35,8 @@ local alert_describe_fn = find_fn(alert_schema, "describe")
 test.assert_not_nil(alert_describe_fn, "alert.describe function should exist in schema")
 test.assert_eq(alert_describe_fn.returns_contract, "core.result", "alert.describe should follow core.result contract")
 
-local policy_schema, policy_err = capabilities.schema("gcloud.monitoring.policy")
-test.assert_nil(policy_err, "capabilities.schema should not error for gcloud.monitoring.policy")
+local policy_schema, policy_err = schema("gcloud.monitoring.policy")
+test.assert_nil(policy_err, "schema should not error for gcloud.monitoring.policy")
 test.assert_not_nil(policy_schema, "policy schema should not be nil")
 test.assert_eq(policy_schema.namespace, "gcloud.monitoring.policy", "policy schema namespace should match")
 
@@ -49,8 +49,8 @@ local policy_describe_fn = find_fn(policy_schema, "describe")
 test.assert_not_nil(policy_describe_fn, "policy.describe function should exist in schema")
 test.assert_eq(policy_describe_fn.returns_contract, "core.result", "policy.describe should follow core.result contract")
 
-local descriptor_schema, descriptor_err = capabilities.schema("gcloud.monitoring.descriptor")
-test.assert_nil(descriptor_err, "capabilities.schema should not error for gcloud.monitoring.descriptor")
+local descriptor_schema, descriptor_err = schema("gcloud.monitoring.descriptor")
+test.assert_nil(descriptor_err, "schema should not error for gcloud.monitoring.descriptor")
 test.assert_not_nil(descriptor_schema, "descriptor schema should not be nil")
 test.assert_eq(descriptor_schema.namespace, "gcloud.monitoring.descriptor", "descriptor schema namespace should match")
 
@@ -59,8 +59,8 @@ test.assert_not_nil(descriptor_fn, "descriptor.list function should exist in sch
 test.assert_eq(descriptor_fn.returns_contract, "core.iter", "descriptor.list should return iterator contract")
 test.assert_eq(descriptor_fn.yields, "MetricDescriptor", "descriptor.list should yield MetricDescriptor")
 
-local series_schema, series_err = capabilities.schema("gcloud.monitoring.series")
-test.assert_nil(series_err, "capabilities.schema should not error for gcloud.monitoring.series")
+local series_schema, series_err = schema("gcloud.monitoring.series")
+test.assert_nil(series_err, "schema should not error for gcloud.monitoring.series")
 test.assert_not_nil(series_schema, "series schema should not be nil")
 test.assert_eq(series_schema.namespace, "gcloud.monitoring.series", "series schema namespace should match")
 

@@ -2,7 +2,7 @@
 -- Requires: gcloud CLI installed and authenticated
 
 -- Explore available gcloud namespaces/functions
-print(json.encode(capabilities.schemas({ namespace = "gcloud" }), true))
+print(json.encode(ctx_init().namespaces.gcloud, true))
 
 -- Common workflow: list projects
 local projects, err = gcloud.project.list()

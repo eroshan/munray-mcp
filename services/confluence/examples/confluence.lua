@@ -4,7 +4,7 @@
 --   JIRA_EMAIL, JIRA_API_TOKEN
 
 -- Explore available Confluence namespaces/functions
-print(json.encode(capabilities.schemas({ namespace = "confluence" }), true))
+print(json.encode(ctx_init().namespaces.confluence, true))
 
 -- Common workflow: fetch a page
 local page, err = confluence.page.get("123456")

@@ -19,12 +19,12 @@ fn saved_snippets_refresh_ai_context() {
     let result = runtime
         .execute(
             r#"
-assert(capabilities.ai_context().namespaces.local_tools == nil)
+assert(ctx_init().namespaces.local_tools == nil)
 assert(snippets.save({namespace="local_tools", name="answer", code="function() return 42 end"}))
-local context = capabilities.ai_context()
+local context = ctx_init()
 local callable = local_tools.answer()
 assert(snippets.delete("local_tools", "answer"))
-local after_delete = capabilities.ai_context()
+local after_delete = ctx_init()
 return {
   callable=callable,
   discovered=context.namespaces.local_tools.answer ~= nil,
@@ -74,8 +74,8 @@ fn snippets_attach_schema_examples_and_can_be_recreated() {
     let result = runtime.execute(
         r#"
 snippets.save({path='local_tools.echo',code='function(x) return x end',schema_expr='{name="echo",path="local_tools.echo",description="Echoes input",readonly=true,returns_contract="core.result"}',example='return local_tools.echo(1)'})
-local schema=capabilities.schema('local_tools')
-local description, example=schema.functions[1].description,capabilities.examples('local_tools.echo')
+local schema=schema('local_tools')
+local description, example=schema.functions[1].description,examples('local_tools.echo')
 snippets.delete('local_tools.echo')
 local absent=local_tools == nil or local_tools.echo == nil
 snippets.save({path='local_tools.echo',code='function() return 2 end'})
@@ -117,8 +117,8 @@ fn save_snippet_definition_is_discoverable() {
         r#"
 local ok, err=snippets.save({path="local_tools.square",code="function(x) return x*x end",description="Squares input",params={{name="x",type="number"}},returns={{name="result",type="number"}},example="return local_tools.square(3)"})
 if err then error(err.message) end
-local schema=capabilities.schema("local_tools")
-return {value=local_tools.square(4),description=schema.functions[1].description,example=capabilities.examples("local_tools.square")}
+local schema=schema("local_tools")
+return {value=local_tools.square(4),description=schema.functions[1].description,example=examples("local_tools.square")}
 "#,
         ExecutionMode::Guarded,
         "<test>",

@@ -16,7 +16,7 @@ A service pack:
 
 - is loaded from the filesystem (not embedded in the munray-mcp binary)
 - should be stateless (no hidden global state required to call functions)
-- declares `__schema` metadata so the core `capabilities.*` API can expose function signatures/types/examples
+- declares `__schema` metadata so the core `ctx_init()`, `schema()`, and `examples()` APIs can expose function signatures, types, and examples
 - may be CLI-based (using `sys.cli.text`, `sys.cli.json`, `sys.cli.start_text`, `sys.cli.start_json`), HTTP-based (using `sys.http.request`, `sys.http.list`, `sys.http.start_request`), or GraphQL-based (using `sys.graphql.request`, `sys.graphql.list`, `sys.graphql.start_request`)
 - may use the scratch Virtual FS (VFS) + blob handles for binary-safe workflows (see `sys.blob.*`, `sys.vfs.*`, and convenience `vfs.*`)
 
@@ -86,9 +86,9 @@ The core runtime loads Lua in a deterministic order:
 
 1. Go raw primitives are available (`sys.exec_mode`, `sys.cli.text`, `sys.cli.json`, `sys.cli.start_text`, `sys.cli.start_json`, `sys.http.request`, `sys.http.list`, `sys.http.start_request`, `sys.url.query_escape`, `sys.url.query_unescape`, `sys.url.path_escape`, `sys.url.path_unescape`, `sys.graphql.request`, `sys.graphql.list`, `sys.graphql.start_request`, `sys.task.status`, `sys.task.result`, `sys.task.cancel`, `sys.task.wait`, `sys.secrets.env`, `sys.secrets.command`, `sys.auth.basic`, `sys.auth.bearer`, `sys.test.start_task`, `sys.store.put`, `sys.store.get`, `sys.store.delete`, `sys.store.keys`, `sys.store.len`, `sys.store.clear`, `sys.store.cache_set`, `sys.store.cache_get`, `sys.blob.from_cli`, `sys.blob.from_http`, `sys.blob.len`, `sys.vfs.mkdirp`, `sys.vfs.write_text`, `sys.vfs.write_blob`, `sys.vfs.read_text`, `sys.vfs.stat`, `sys.vfs.list`, `sys.vfs.to_text`, `sys.vfs.expose`)
 2. Embedded preload Lua executes (helpers, store, task, vfs, capabilities)
-3. Service packs load:
-   - all `<service>/src/init.lua` files (alphabetically by service)
-   - all other `<service>/src/**/*.lua` files (alphabetically by path)
+3. Service packs load one pack at a time in alphabetical service order:
+   - `<service>/src/init.lua` first, when present
+   - all other `<service>/src/**/*.lua` files in path order; nested `init.lua` files are ordinary modules, not pack entrypoints
 4. The core captures security validators to prevent runtime overrides
 5. User code executes (REPL or MCP). In REPL and `./munray-mcp test`, direct `sys.*` calls are allowed for debugging and service-pack tests.
 
@@ -173,7 +173,7 @@ Every guarded function must be marked:
 
 This allows:
 
-- correct discovery output via `capabilities.*`
+- correct discovery output via `ctx_init()`, `schema()`, and `examples()`
 - function-level gating (where enforced)
 
 ### 5.2 Transport and Mutation Policy
@@ -222,11 +222,9 @@ Note: The async mechanism is standardized (task-based) and is described by the `
 
 ## 6. Capabilities and `__schema` Metadata
 
-`capabilities.*` is implemented in core Lua and discovers `__schema` tables attached to namespaces.
+`ctx_init()`, `schema(namespace)`, and `examples(namespace)` are implemented in core Lua and discover `__schema` tables attached to namespaces.
 
-Development helper:
-
-- `capabilities.invalidate() -> (true, nil)` clears the internal discovery cache so newly-installed namespaces/functions (e.g., from local store dynamic snippets) show up in `capabilities.*` without recreating the Lua state.
+The discovery cache is invalidated automatically when a snippet installs or deletes a namespace/function; there is no public invalidation API.
 
 ### 6.1 Service API Design Philosophy
 - Learn Once, Apply Everywhere - 4 fundamental patterns cover all operations
@@ -241,9 +239,9 @@ Schema is contract-driven:
 - Non-iterator functions MUST declare `returns_contract = "core.result"`
 - Iterator functions MUST declare `returns_contract = "core.iter"` and `yields = "<TypeName>"`
 
-These contracts are published by the core in `capabilities.ai_context().contracts` (so a caller can learn semantics without reading implementations).
+These contracts are published by the core in `ctx_init().contracts` (so a caller can learn semantics without reading implementations).
 
-Note: `capabilities.ai_context()` uses these same contract keys (`core.iter`, `core.result`, `core.error`).
+Note: `ctx_init()` uses these same contract keys (`core.iter`, `core.result`, `core.error`).
 
 A typical (non-iterator) schema table:
 
@@ -312,7 +310,7 @@ myservice.resource.__schema = {
 ```
 Notes:
 
-- `usage_hint` is optional and intended for compact AI-facing guidance only; it is surfaced only via `capabilities.ai_context().hints.namespaces`
+- `usage_hint` is optional and intended for compact AI-facing guidance only; it is surfaced only via `ctx_init().hints.namespaces`
 - `usage_hint` is valid only on top-level public namespaces (for example `gitlab`, `jira`, `vfs`), not nested namespaces like `gitlab.job`
 - Example root-level use:
   ```lua
@@ -331,27 +329,27 @@ Notes:
 ### 6.3 Example Placement (Namespace vs Method)
 
 - Service-level examples live in `examples/<service>.lua` (file name matches the service directory name) and must be a single runnable Lua snippet (the file contents are returned as a string).
-  - Access via: `capabilities.examples("<service>")`
+  - Access via: `examples("<service>")`
 - Namespace-level examples live in `examples/<namespace>.lua` and must be a single runnable Lua snippet (the file contents are returned as a string).
-  - For a service `jira`, `examples/issue.lua` maps to `capabilities.examples("jira.issue")`.
+  - For a service `jira`, `examples/issue.lua` maps to `examples("jira.issue")`.
   - Nested namespaces may be represented with directories (e.g. `examples/mr.lua` for `gitlab.mr`).
 - Method-level examples stay inline on the schema: `__schema.functions[method].examples` must be a single runnable string (use a Lua multiline literal like `[[...]]`).
 
 Example style guidance:
 
 - Keep examples focused and compact; include only the minimum setup needed to understand the call.
-- Examples are documentation loaded by `capabilities.examples(...)`; they are not executed automatically by `./munray-mcp test` unless a test explicitly loads and runs them.
+- Examples are documentation loaded by `examples(...)`; they are not executed automatically by `./munray-mcp test` unless a test explicitly loads and runs them.
 - Do not add read-only fallback branches, `run_*` gates, or other test-phase protections unless the example genuinely needs them.
 - For guarded APIs, it is fine for the example to show the direct guarded call when that is the clearest usage.
 
 Lookup order:
 
-- `capabilities.examples("namespace.fn.method")`:
+- `examples("namespace.fn.method")`:
   1. inline method example (`__schema.functions[].examples`)
   2. namespace-level example file (`examples/<namespace>.lua`)
   3. service-level example file (`examples/<service>.lua`)
   4. otherwise `nil`
-- `capabilities.examples("namespace")` returns the namespace-level (or service-level) cached example if present.
+- `examples("namespace")` returns the namespace-level (or service-level) cached example if present.
 
 Non-blocking warnings:
 

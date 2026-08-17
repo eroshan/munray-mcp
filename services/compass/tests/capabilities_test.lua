@@ -7,7 +7,7 @@ test.assert_eq(type(compass.component), "function", "compass.component should be
 test.assert_eq(type(compass.searchComponents), "function", "compass.searchComponents should be a function")
 test.assert_eq(type(compass.componentLogs), "function", "compass.componentLogs should be a function")
 
-local schema = capabilities.schema("compass")
+local schema = schema("compass")
 test.assert_not_nil(schema, "compass schema should be discoverable")
 test.assert_eq(schema.namespace, "compass", "compass schema namespace should match")
 test.assert_eq(schema.service, "compass", "compass schema service should match")

@@ -85,7 +85,8 @@ async fn run() -> Result<()> {
             execute(Some(file), cli.svc_dir, cli.store_path, cli.logs_dir)
         }
         Some(Command::Mcp) => {
-            let server = McpServer::with_options(cli.svc_dir, cli.store_path, cli.logs_dir);
+            let server = McpServer::with_options(cli.svc_dir, cli.store_path, cli.logs_dir)
+                .map_err(anyhow::Error::msg)?;
             #[cfg(unix)]
             let _ingest = match mcp_server::ipc::start_listener(
                 server.clone(),

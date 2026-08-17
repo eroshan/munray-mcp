@@ -23,7 +23,7 @@ test.assert_eq(type(confluence.page.get_by_url), "nil", "page.get_by_url should 
 
 test.describe("Confluence Service - Schema Discovery")
 
-local page_schema = capabilities.schema("confluence.page")
+local page_schema = schema("confluence.page")
 test.assert_not_nil(page_schema, "confluence.page schema should exist")
 test.assert_eq(page_schema.namespace, "confluence.page", "page schema namespace should be correct")
 test.assert_eq(page_schema.service, "confluence", "page schema service should be confluence")

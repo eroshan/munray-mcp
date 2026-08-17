@@ -43,6 +43,13 @@ pub struct Execution {
     pub result: JsonValue,
 }
 
+fn record_metric(buffer: &Arc<Mutex<HashMap<String, f64>>>, operation: &str, outcome: &str) {
+    *buffer
+        .lock()
+        .entry(format!("fn.{operation}.{outcome}"))
+        .or_default() += 1.0;
+}
+
 pub struct LuaRuntime {
     lua: Lua,
     output: Arc<Mutex<String>>,
@@ -51,11 +58,14 @@ pub struct LuaRuntime {
     allowed_cli: Arc<Mutex<Vec<String>>>,
     raw_authorization: Arc<Mutex<RawAuthorization>>,
     function_registry: Arc<Mutex<HashMap<String, RegisteredFunction>>>,
+    metric_buffer: Arc<Mutex<HashMap<String, f64>>>,
     session_env: Arc<Mutex<Option<mlua::Table>>>,
     _vfs: Arc<tempfile::TempDir>,
     _exposures: Arc<Mutex<Vec<tempfile::TempDir>>>,
     _blobs: crate::blob::BlobStore,
     ingest: crate::ingest::IngestStore,
+    tasks: crate::tasks::Manager,
+    loaded_services: crate::services::LoadReport,
 }
 
 impl LuaRuntime {
@@ -66,8 +76,7 @@ impl LuaRuntime {
     /// Return the schema map produced by the trusted capabilities discovery.
     /// This deliberately invokes introspection only; no provider operation runs.
     pub fn discovered_schemas(&self) -> Result<BTreeMap<String, JsonValue>> {
-        let capabilities: mlua::Table = self.lua.globals().get("capabilities")?;
-        let raw: mlua::Function = capabilities.get("_raw_schemas")?;
+        let raw: mlua::Function = self.lua.globals().get("_raw_schemas")?;
         let schemas: mlua::Table = raw.call(())?;
         let mut result = BTreeMap::new();
         for pair in schemas.pairs::<String, Value>() {
@@ -92,6 +101,10 @@ impl LuaRuntime {
             value = table.get::<Value>(part)?;
         }
         Ok(matches!(value, Value::Function(_)))
+    }
+
+    pub fn loaded_services(&self) -> &crate::services::LoadReport {
+        &self.loaded_services
     }
 
     pub fn global_field_json(&self, root: &str, field: &str) -> Result<Option<JsonValue>> {
@@ -148,7 +161,7 @@ impl LuaRuntime {
         let blobs = crate::blob::BlobStore::new();
         let ingest = crate::ingest::IngestStore::new(Arc::clone(&vfs));
         let store = crate::storage::Store::open(store_path)?;
-        let runtime = Self {
+        let mut runtime = Self {
             lua,
             output: Arc::new(Mutex::new(String::new())),
             mode: Arc::new(Mutex::new(ExecutionMode::ReadOnly)),
@@ -160,15 +173,18 @@ impl LuaRuntime {
                 depth: 0,
             })),
             function_registry: Arc::new(Mutex::new(HashMap::new())),
+            metric_buffer: Arc::new(Mutex::new(HashMap::new())),
             session_env: Arc::new(Mutex::new(None)),
             _vfs: Arc::clone(&vfs),
             _exposures: Arc::clone(&exposures),
             _blobs: blobs.clone(),
             ingest: ingest.clone(),
+            tasks: crate::tasks::Manager::new(),
+            loaded_services: crate::services::LoadReport::default(),
         };
         runtime.install_core(vfs, exposures, blobs, ingest, store)?;
         if let Some(path) = service_dir {
-            crate::services::load(&runtime.lua, path)?;
+            runtime.loaded_services = crate::services::load(&runtime.lua, path)?;
             runtime.discover_allowed_cli()?;
         }
         crate::storage::restore_lua_snippets(&runtime.lua, &runtime.store)?;
@@ -341,7 +357,7 @@ impl LuaRuntime {
                 },
             )?,
         )?;
-        let tasks = crate::tasks::Manager::new();
+        let tasks = self.tasks.clone();
         crate::http::register(&self.lua, &raw_table, tasks.clone())?;
         crate::ingest::register(&self.lua, &raw_table, ingest)?;
         crate::blob::register(
@@ -569,6 +585,7 @@ impl LuaRuntime {
             Arc::clone(&self.mode),
             Arc::clone(&self.raw_authorization),
             self.store.clone(),
+            Arc::clone(&self.metric_buffer),
             Arc::clone(&self.function_registry),
             Arc::clone(&self.session_env),
         )
@@ -578,7 +595,8 @@ impl LuaRuntime {
         lua: &Lua,
         mode: Arc<Mutex<ExecutionMode>>,
         authorization: Arc<Mutex<RawAuthorization>>,
-        store: crate::storage::Store,
+        _store: crate::storage::Store,
+        metric_buffer: Arc<Mutex<HashMap<String, f64>>>,
         registry: Arc<Mutex<HashMap<String, RegisteredFunction>>>,
         session_env: Arc<Mutex<Option<mlua::Table>>>,
     ) -> Result<()> {
@@ -630,18 +648,17 @@ impl LuaRuntime {
                 let registered_for_call = registered.clone();
                 let mode_for_call = Arc::clone(&mode);
                 let auth_for_call = Arc::clone(&authorization);
-                let store_for_call = store.clone();
+                let metrics_for_call = Arc::clone(&metric_buffer);
                 let operation_for_call = operation.clone();
                 let original_for_call = original.clone();
                 let wrapper = lua.create_function(move |lua, args: MultiValue| {
                     if registered_for_call.guarded
                         && *mode_for_call.lock() != ExecutionMode::Guarded
                     {
-                        let _ = store_for_call
-                            .increment_function_metric(&operation_for_call, "blocked");
+                        record_metric(&metrics_for_call, &operation_for_call, "blocked");
                         return mutation_blocked(lua, &operation_for_call);
                     }
-                    let _ = store_for_call.increment_function_metric(&operation_for_call, "calls");
+                    record_metric(&metrics_for_call, &operation_for_call, "calls");
                     let result = {
                         let _scope = RawScope::enter(Arc::clone(&auth_for_call));
                         original_for_call.call::<MultiValue>(args)
@@ -649,8 +666,7 @@ impl LuaRuntime {
                     let mut values = match result {
                         Ok(values) => values,
                         Err(error) => {
-                            let _ = store_for_call
-                                .increment_function_metric(&operation_for_call, "err");
+                            record_metric(&metrics_for_call, &operation_for_call, "err");
                             return Err(error);
                         }
                     };
@@ -658,8 +674,7 @@ impl LuaRuntime {
                         && !matches!(values.get(1), Some(Value::Nil) | None)
                         && (registered_for_call.operation == operation_for_call)
                     {
-                        let _ =
-                            store_for_call.increment_function_metric(&operation_for_call, "err");
+                        record_metric(&metrics_for_call, &operation_for_call, "err");
                     }
                     if registered_for_call.iterator {
                         if let Some(Value::Function(iterator_fn)) = values.front().cloned() {
@@ -690,6 +705,7 @@ impl LuaRuntime {
         let authorization = Arc::clone(&self.raw_authorization);
         let store = self.store.clone();
         let registry = Arc::clone(&self.function_registry);
+        let metric_buffer = Arc::clone(&self.metric_buffer);
         let session_env = Arc::clone(&self.session_env);
         snippets.set(
             "save",
@@ -714,6 +730,7 @@ impl LuaRuntime {
                             Arc::clone(&mode),
                             Arc::clone(&authorization),
                             store.clone(),
+                            Arc::clone(&metric_buffer),
                             Arc::clone(&registry),
                             Arc::clone(&session_env),
                         )
@@ -727,6 +744,7 @@ impl LuaRuntime {
         let authorization = Arc::clone(&self.raw_authorization);
         let store = self.store.clone();
         let registry = Arc::clone(&self.function_registry);
+        let metric_buffer = Arc::clone(&self.metric_buffer);
         let session_env = Arc::clone(&self.session_env);
         snippets.set(
             "delete",
@@ -749,6 +767,7 @@ impl LuaRuntime {
                         Arc::clone(&mode),
                         Arc::clone(&authorization),
                         store.clone(),
+                        Arc::clone(&metric_buffer),
                         Arc::clone(&registry),
                         Arc::clone(&session_env),
                     )
@@ -784,6 +803,17 @@ impl LuaRuntime {
         commands.dedup();
         *self.allowed_cli.lock() = commands;
         Ok(())
+    }
+
+    /// Cancel all runtime-local background work. Session eviction uses this before
+    /// dropping the VM so subprocess and transport tasks observe shutdown.
+    pub(crate) fn cancel_tasks(&self) {
+        self.tasks.cancel_all();
+    }
+
+    fn flush_metrics(&self) -> Result<()> {
+        let metrics = std::mem::take(&mut *self.metric_buffer.lock());
+        self.store.increment_metrics_batch(&metrics)
     }
 
     pub fn execute(&self, code: &str, mode: ExecutionMode, chunk_name: &str) -> Result<Execution> {
@@ -824,6 +854,7 @@ impl LuaRuntime {
         }
         let evaluation: mlua::Result<MultiValue> = chunk.eval();
         self.lua.remove_hook();
+        self.flush_metrics()?;
         let values = evaluation.with_context(|| format!("Lua execution failed in {chunk_name}"))?;
         let mut results = values
             .into_iter()
@@ -999,6 +1030,9 @@ fn refresh_session_environment(lua: &Lua, holder: &Arc<Mutex<Option<mlua::Table>
     };
     let globals = lua.globals();
     for name in [
+        "ctx_init",
+        "schema",
+        "examples",
         "assert",
         "error",
         "getmetatable",
@@ -1046,7 +1080,7 @@ fn refresh_session_environment(lua: &Lua, holder: &Arc<Mutex<Option<mlua::Table>
         {
             continue;
         }
-        if name == "capabilities" || is_public_table(&value, &mut Vec::new())? {
+        if is_public_table(&value, &mut Vec::new())? {
             roots.push((name, value));
         }
     }

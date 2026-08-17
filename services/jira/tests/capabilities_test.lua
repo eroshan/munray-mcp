@@ -20,7 +20,7 @@ test.assert_eq(type(jira.field.list), "function", "jira.field.list should be a f
 test.describe("Jira Service - Schema Discovery")
 
 -- Test jira.issue schema
-local issue_schema = capabilities.schema("jira.issue")
+local issue_schema = schema("jira.issue")
 test.assert_not_nil(issue_schema, "jira.issue schema should exist")
 test.assert_eq(issue_schema.namespace, "jira.issue", "issue schema namespace should be correct")
 test.assert_eq(issue_schema.service, "jira", "issue schema service should be jira")
@@ -64,7 +64,7 @@ test.assert(has_update, "issue schema should include update function")
 test.assert(has_transition, "issue schema should include transition function")
 
 -- Test jira.field schema
-local field_schema = capabilities.schema("jira.field")
+local field_schema = schema("jira.field")
 test.assert_not_nil(field_schema, "jira.field schema should exist")
 test.assert_eq(field_schema.namespace, "jira.field", "field schema namespace should be correct")
 test.assert_eq(field_schema.service, "jira", "field schema service should be jira")
@@ -94,7 +94,7 @@ test.assert_eq(type(jira.ready), "function", "jira.ready should be a function")
 
 test.describe("Jira Service - AI Context")
 
-local context = capabilities.ai_context()
+local context = ctx_init()
 test.assert_not_nil(context, "ai_context should return a table")
 test.assert_not_nil(context.namespaces, "ai_context should have namespaces field")
 test.assert_not_nil(context.namespaces.jira, "ai_context should include jira namespace")
@@ -102,7 +102,7 @@ test.assert_not_nil(context.namespaces.jira.issue, "ai_context should include ji
 test.assert_not_nil(context.namespaces.jira.issue.get, "ai_context should include jira.issue.get operation")
 
 -- Check if jira is mentioned (it might not be if not configured, but should be in schema)
-local schemas = capabilities.schemas({ namespace = "jira" })
+local schemas = ctx_init().namespaces
 test.assert_not_nil(schemas.jira, "jira schemas should be registered")
 test.assert_not_nil(schemas.jira.issue, "jira.issue schema should be nested under jira")
 test.assert_not_nil(schemas.jira.issue.get, "jira.issue.get schema should be nested under jira.issue")

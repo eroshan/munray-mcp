@@ -3,6 +3,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
+        mpsc::{SyncSender, TrySendError, sync_channel},
     },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -14,9 +15,18 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::runtime::lua_error;
 
+const MAX_RUNNING: usize = 10;
+const WORKERS: usize = 4;
+const QUEUE_CAPACITY: usize = MAX_RUNNING;
+const RESULT_LIMIT: usize = 10 * 1024 * 1024;
+const RETENTION: Duration = Duration::from_secs(5 * 60);
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
 #[derive(Clone)]
 pub(crate) struct Manager {
     tasks: Arc<Mutex<HashMap<String, Task>>>,
+    jobs: SyncSender<Job>,
 }
 
 struct Task {
@@ -55,40 +65,55 @@ impl TaskFailure {
 
 impl Manager {
     pub(crate) fn new() -> Self {
-        Self {
-            tasks: Arc::new(Mutex::new(HashMap::new())),
+        let tasks = Arc::new(Mutex::new(HashMap::<String, Task>::new()));
+        let (jobs, receiver) = sync_channel::<Job>(QUEUE_CAPACITY);
+        let receiver = Arc::new(Mutex::new(receiver));
+        for _ in 0..WORKERS {
+            let receiver = Arc::clone(&receiver);
+            thread::spawn(move || {
+                loop {
+                    let job = match receiver.lock().recv() {
+                        Ok(job) => job,
+                        Err(_) => break,
+                    };
+                    job();
+                }
+            });
         }
+        Self { tasks, jobs }
     }
 
     pub(crate) fn start<F>(&self, function: F) -> Result<String, String>
     where
         F: FnOnce(Arc<AtomicBool>) -> Result<JsonValue, TaskFailure> + Send + 'static,
     {
-        if self
-            .tasks
-            .lock()
-            .values()
-            .filter(|task| matches!(task.state, TaskState::Running))
-            .count()
-            >= 10
-        {
-            return Err("too many concurrent tasks".into());
-        }
         let id = uuid::Uuid::new_v4().to_string();
         let cancellation = Arc::new(AtomicBool::new(false));
-        self.tasks.lock().insert(
-            id.clone(),
-            Task {
-                state: TaskState::Running,
-                started_at_ms: now_ms(),
-                finished_at_ms: None,
-                cancellation: Arc::clone(&cancellation),
-            },
-        );
+        {
+            let mut tasks = self.tasks.lock();
+            prune_completed(&mut tasks);
+            if tasks
+                .values()
+                .filter(|task| matches!(task.state, TaskState::Running))
+                .count()
+                >= MAX_RUNNING
+            {
+                return Err("too many concurrent tasks".into());
+            }
+            tasks.insert(
+                id.clone(),
+                Task {
+                    state: TaskState::Running,
+                    started_at_ms: now_ms(),
+                    finished_at_ms: None,
+                    cancellation: Arc::clone(&cancellation),
+                },
+            );
+        }
         let tasks = Arc::clone(&self.tasks);
         let task_id = id.clone();
-        thread::spawn(move || {
-            let result = function(cancellation);
+        let job: Job = Box::new(move || {
+            let result = function(Arc::clone(&cancellation));
             let mut tasks = tasks.lock();
             let Some(task) = tasks.get_mut(&task_id) else {
                 return;
@@ -98,11 +123,40 @@ impl Manager {
             }
             task.finished_at_ms = Some(now_ms());
             task.state = match result {
-                Ok(value) => TaskState::Completed(value),
+                Ok(value) => match serde_json::to_vec(&value) {
+                    Ok(encoded) if encoded.len() <= RESULT_LIMIT => TaskState::Completed(value),
+                    Ok(_) => TaskState::Failed(TaskFailure::new(
+                        "RESULT_TOO_LARGE",
+                        "task result exceeded 10485760 bytes",
+                        false,
+                    )),
+                    Err(error) => TaskState::Failed(TaskFailure::new(
+                        "RESULT_SERIALIZATION_FAILED",
+                        error.to_string(),
+                        false,
+                    )),
+                },
                 Err(error) => TaskState::Failed(error),
             };
         });
-        Ok(id)
+        match self.jobs.try_send(job) {
+            Ok(()) => Ok(id),
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.tasks.lock().remove(&id);
+                Err("task executor is busy".into())
+            }
+        }
+    }
+
+    pub(crate) fn cancel_all(&self) {
+        let mut tasks = self.tasks.lock();
+        for task in tasks.values_mut() {
+            if matches!(task.state, TaskState::Running) {
+                task.cancellation.store(true, Ordering::Release);
+                task.state = TaskState::Cancelled;
+                task.finished_at_ms = Some(now_ms());
+            }
+        }
     }
 }
 
@@ -159,10 +213,10 @@ pub(crate) fn register(
     let task: Table = raw.get("task")?;
     let status_manager = manager.clone();
     task.set("status", lua.create_function(move |lua, id: String| {
-        let tasks = status_manager.tasks.lock();
-        let Some(task) = tasks.get(&id) else { return lua_error(lua, "NOT_FOUND", "unknown task".into(), false); };
-        let state = state_name(&task.state);
-        Ok((lua.to_value(&json!({"state":state,"started_at_ms":task.started_at_ms,"finished_at_ms":task.finished_at_ms}))?, Value::Nil))
+        let mut tasks = status_manager.tasks.lock();
+        prune_completed(&mut tasks);
+        let Some(task) = tasks.get(&id) else { return lua_error(lua, "NOT_FOUND", "unknown task".into(), false) };
+        Ok((lua.to_value(&json!({"state":state_name(&task.state),"started_at_ms":task.started_at_ms,"finished_at_ms":task.finished_at_ms}))?, Value::Nil))
     })?)?;
 
     let result_manager = manager.clone();
@@ -175,10 +229,18 @@ pub(crate) fn register(
     task.set(
         "wait",
         lua.create_function(move |lua, (id, timeout_ms): (String, Option<u64>)| {
-            let timeout = Duration::from_millis(timeout_ms.unwrap_or(295_000));
+            let requested = Duration::from_millis(timeout_ms.unwrap_or(295_000));
+            let Some(timeout) = crate::deadline::effective(requested) else {
+                return lua_error(
+                    lua,
+                    "TIMEOUT",
+                    "execution deadline exceeded while waiting for task".into(),
+                    true,
+                );
+            };
             let started = std::time::Instant::now();
             loop {
-                if started.elapsed() >= timeout {
+                if started.elapsed() >= timeout || crate::deadline::expired() {
                     return lua_error(lua, "TIMEOUT", "timed out waiting for task".into(), true);
                 }
                 let running = wait_manager
@@ -227,7 +289,7 @@ pub(crate) fn register(
                     }
                     thread::sleep(Duration::from_millis(5));
                 }
-                Ok::<JsonValue, TaskFailure>(result)
+                Ok(result)
             }) {
                 Ok(id) => Ok((Value::String(lua.create_string(&id)?), Value::Nil)),
                 Err(error) => lua_error(lua, "TOO_MANY_TASKS", error, true),
@@ -238,7 +300,8 @@ pub(crate) fn register(
 }
 
 fn task_result(lua: &Lua, manager: &Manager, id: &str) -> mlua::Result<(Value, Value)> {
-    let tasks = manager.tasks.lock();
+    let mut tasks = manager.tasks.lock();
+    prune_completed(&mut tasks);
     let Some(task) = tasks.get(id) else {
         return lua_error(lua, "NOT_FOUND", "unknown task".into(), false);
     };
@@ -265,9 +328,17 @@ fn run_command(
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
+    let requested = Duration::from_secs_f64(timeout_seconds);
+    let Some(timeout) = crate::deadline::effective(requested) else {
+        return Err(TaskFailure::new(
+            "TIMEOUT",
+            "execution deadline exceeded",
+            true,
+        ));
+    };
     let output = crate::process::capture_cancellable(
         &mut command,
-        Duration::from_secs_f64(timeout_seconds),
+        timeout,
         200 * 1024 * 1024,
         Some(cancellation),
     )
@@ -305,6 +376,17 @@ fn run_command(
     }
 }
 
+fn prune_completed(tasks: &mut HashMap<String, Task>) {
+    let now = now_ms();
+    let retention_ms = RETENTION.as_millis();
+    tasks.retain(|_, task| {
+        matches!(task.state, TaskState::Running)
+            || task
+                .finished_at_ms
+                .is_some_and(|finished| now.saturating_sub(finished) <= retention_ms)
+    });
+}
+
 fn state_name(state: &TaskState) -> &'static str {
     match state {
         TaskState::Running => "running",
@@ -313,7 +395,6 @@ fn state_name(state: &TaskState) -> &'static str {
         TaskState::Cancelled => "cancelled",
     }
 }
-
 fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

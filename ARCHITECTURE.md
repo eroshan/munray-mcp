@@ -65,7 +65,7 @@ rmcp server + command routing (`main.rs`, `mcp.rs`)
  external tools    external/local APIs          local disk/RAM   Unix socket
 ```
 
-The executable uses a Tokio multi-thread runtime for the MCP server. The current MCP tool handlers call synchronous Lua, process, and blocking HTTP code directly from async handlers; they do not use `spawn_blocking` or a dedicated worker pool.
+The executable uses a Tokio multi-thread runtime for the MCP server. MCP admission and execution use `spawn_blocking`: Lua VM construction and each serialized session execution run outside Tokio executor threads. Runtime-local background work uses a bounded four-worker executor.
 
 Additional native threads are created for:
 
@@ -83,7 +83,7 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 | --- | --- |
 | default / `run [file]` | Execute stdin or a file in a new runtime, in guarded mode. There is no interactive REPL. |
 | `mcp` | Serve MCP over stdin/stdout and, on Unix, start the local ingest socket. |
-| `validate` | Construct a runtime to catch load failures, then count files named `init.lua`. It does **not** force capability/schema validation. |
+| `validate` | Constructs a temporary runtime, forces schema discovery and validation, and reports the service-pack directories actually loaded. Nested `init.lua` files are reported as modules, not packs. |
 | `test` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. |
 | `ingest` | Send UTF-8 stdin to an already-created MCP session through its Unix socket. |
 | `list-sys` | Construct a runtime and enumerate registered `sys.*` functions. |
@@ -114,7 +114,7 @@ Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. 
 | MCP server | `src/mcp.rs` | Tools, elicitation, sessions, ordering, timeout selection, response encoding. |
 | Lua runtime | `src/runtime.rs` | VM construction, raw registration, preload, execution, conversion, restrictions. |
 | Durable storage | `src/storage.rs` | SQLite lifecycle, KV expiry, metrics, snippets, schema initialization, and Lua storage bridges. |
-| Service loading | `src/services.rs` | Deterministic source/example discovery and execution. |
+| Service loading | `src/services.rs` | Deterministic source/example discovery and execution, with a report of loaded packs and nested modules. |
 | Core Lua bootstrap | `src/preload/*.lua` | Helpers, capabilities, KV/snippet schemas, tasks, VFS, ingest, error translation, and tests. |
 | HTTP/GraphQL | `src/http.rs` | Requests, auth application, retries, pagination, async request starters. |
 | Process execution | `src/process.rs` | Child lifecycle, timeout/cancellation polling, bounded output capture. |
@@ -131,9 +131,8 @@ Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. 
 | --- | --- | --- |
 | Process-global | SQLite connection registry | Maps absolute database paths to one mutex-protected reusable SQLite connection. All runtimes in one process using the same path share it. |
 | Process-global | command-secret registry | Maps generated IDs to command-secret definitions. Entries are not currently removed. |
-| Process-global | pending MCP arrivals | Keyed by `session_id`; used by same-session ordering. |
 | `McpServer` | session map, service/store paths, TTL, optional logger | Shared across cloned server handlers. |
-| `Session` | one mutex-protected `LuaRuntime`, queue state, last-used time | Retained in the server map until lazily evicted. |
+| `Session` | one mutex-protected `LuaRuntime`, per-session FIFO queue, last-used time | Retained in the server map until lazily evicted; eviction cancels runtime tasks. |
 | `LuaRuntime` | Lua VM, output, mode, immutable function registry, Rust raw-authorization state, optional session environment, CLI allowlist, VFS, blobs, ingest | One per CLI invocation, service test, or MCP session. |
 | Runtime closures | task manager | Shared by raw task/transport functions in one runtime. |
 | Runtime | VFS `TempDir` and exposure bundles | Removed when their final owning references are dropped. |
@@ -173,17 +172,17 @@ Service source and persisted snippets load before restrictions are applied. Wrap
 
 `services::load` scans immediate child directories of the configured services directory, sorted by name. It processes one complete service at a time.
 
-For each service:
+For each service pack (an immediate child directory with `src`):
 
-- `<service>/src` is walked recursively with symlinks followed;
-- every Lua file whose filename is `init.lua` sorts before non-`init.lua` files, followed by path order;
+- `<service>/src` is walked recursively with symlinks followed, and walk errors are surfaced;
+- only `<service>/src/init.lua` is the pack entrypoint and executes first; nested `init.lua` files are ordinary modules sorted with the remaining source paths;
 - files execute one-by-one with their filesystem path as the chunk name;
-- `<service>/examples/**/*.lua` files are read as text, not executed; and
+- `<service>/examples/**/*.lua` files are read as text, not executed, and walk errors are surfaced; and
 - relative example path components have `_` converted to `.`, then are prefixed with the service name unless the file is the service-level example.
 
-Walk errors are currently discarded through `filter_map(Result::ok)`. A missing service directory is accepted and leaves only core APIs available.
+A missing service directory is accepted and leaves only core APIs available. Every pack must contain `src/init.lua`. The load report records every pack directory and nested `init.lua` module; `validate` prints loaded directories and any nested `init.lua` modules.
 
-Service packs may declare `__intro`, but the MCP initialization response currently does not discover or include it. Initialization instructions are a fixed string in `McpServer::get_info`.
+Service packs may declare a string `__intro`. MCP startup loads the same trusted bootstrap used by sessions and appends non-empty introductions from successfully loaded packs under **Available service integrations** in the initialization instructions.
 
 ### 7.2 Schemas and capabilities
 
@@ -192,12 +191,12 @@ A public namespace is a Lua table with `__schema`. The modular capabilities impl
 - discovers schema roots by walking selected tables in `_G`;
 - validates required namespace/function fields on first discovery;
 - caches schemas, functions, types, examples, and warnings;
-- exposes `capabilities.ai_context`, `schema`, `schemas`, `examples`, and `invalidate`; and
+- exposes `ctx_init`, `schema`, and `examples`; and
 - optionally warns about missing examples when `MUNRAY_MCP_WARN_MISSING_EXAMPLES=1` was visible during bootstrap.
 
-Capability discovery is lazy. `validate` constructs a runtime but does not call capability discovery, so malformed schema metadata can survive `validate` until a capability function is used.
+Capability discovery is lazy for normal runtime use. `validate` explicitly forces it, so malformed schema metadata fails validation.
 
-Dynamic snippet installation and deletion invalidate the capability cache, so the next `capabilities.ai_context()`, `schema`, `schemas`, or `examples` call discovers the current snippet functions.
+Dynamic snippet installation and deletion invalidate the private discovery cache automatically, so the next `ctx_init()`, `schema`, or `examples` call discovers the current snippet functions.
 
 ## 8. MCP request lifecycle
 
@@ -220,22 +219,15 @@ Both accept:
 
 ### 8.2 Session creation and reuse
 
-On the first call for a session ID, the server constructs a complete runtime and loads all service packs while holding the global session-map lock. A missing `session_id` causes the server to generate a UUID, retain that session, and return the UUID in the tool payload; the caller can reuse the returned ID later.
+On the first call for a session ID, the server records a building entry under the session-map lock, then constructs the runtime and loads service packs in `spawn_blocking` after releasing that lock. Concurrent callers wait on that entry's completion rather than duplicate construction. A missing `session_id` causes the server to generate a UUID, retain that session, and return the UUID in the tool payload; the caller can reuse the returned ID later.
 
-The runtime stores the MCP process ID in `__runtime.server_id`, which `capabilities.ai_context()` exposes for ingest workflows.
+The runtime stores the MCP process ID in `__runtime.server_id`, which `ctx_init()` exposes for ingest workflows.
 
 Sessions expire after 30 minutes of inactivity, but cleanup is **lazy**: expiration is checked only while admitting an execution. There is no periodic cleanup loop and no explicit session-close API. An in-flight `Arc` reference prevents eviction.
 
 ### 8.3 Same-session ordering
 
-Independent sessions can execute concurrently. Same-session calls are intended to execute in FIFO order, but the current mechanism is not a dedicated queue:
-
-1. Numeric non-negative JSON-RPC request IDs are used as arrival numbers.
-2. Other IDs receive a process-global atomic number.
-3. Arrival numbers are stored in a process-global `BTreeSet` per session.
-4. A request sleeps for 5 ms, then waits until its number is the smallest pending value.
-
-This orders increasing numeric request IDs, which is not necessarily the same as wire-arrival order. Runtime-creation errors can also leave pending arrival state behind because cleanup is not RAII-based.
+Independent sessions execute concurrently. Same-session calls reserve a monotonic sequence in a session-local FIFO queue when admitted. The reservation is RAII-managed: a rejected guarded call, failed build, or dropped request marks its sequence cancelled and advances the queue head, so it cannot strand later work. Request IDs are not used for scheduling and there is no process-global arrival registry or timing heuristic.
 
 ### 8.4 Guarded elicitation
 
@@ -275,7 +267,7 @@ Before each execution the runtime:
 
 The hook checks every 10,000 Lua instructions. MCP supplies a timeout; the local CLI currently calls `execute` without an overall Lua timeout, so pure Lua code can run indefinitely there.
 
-The thread-local deadline constrains selected synchronous nested operations, including CLI capture, HTTP, blob capture, and command secrets. It does not automatically constrain all Rust callbacks. For example, `async_task.wait` blocks inside Rust using its own timeout, VFS ZIP subprocesses have no deadline, and background tasks do not inherit the caller thread's deadline.
+The thread-local deadline constrains synchronous nested operations, including CLI capture, HTTP, blob capture, command secrets, task waits, and VFS ZIP subprocesses. Nested operations clamp their requested timeout to the active deadline. Task cancellation is additionally propagated to CLI and HTTP task loops.
 
 ### 9.2 Output and return conversion
 
@@ -343,7 +335,7 @@ The raw CLI and command-secret implementations require exact command-name member
 | `sys.url` | query/path escape and unescape |
 | `sys.vfs` | `mkdirp`, text/blob write, text read, `stat`, `list`, `to_text`, `expose` |
 
-Public core namespaces include `json`, `yaml`, `helpers`, `store`, `async_task`, `vfs`, `ingest`, and `capabilities`. `errutil` is intentionally internal and has no schema.
+Public core namespaces include `json`, `yaml`, `helpers`, `store`, `async_task`, `vfs`, and `ingest`; discovery is exposed through the global `ctx_init`, `schema`, and `examples` functions. `errutil` is intentionally internal and has no schema.
 
 ### 11.2 CLI and process capture
 
@@ -375,14 +367,13 @@ Each runtime has one task registry. A task has a UUID, timestamps, cancellation 
 Current behavior:
 
 - at most 10 running tasks are admitted per runtime;
-- each task starts an unbounded native thread;
-- `async_task.cancel` is a guarded operation because it mutates task state; CLI task cancellation is observed by the process polling loop;
-- HTTP/GraphQL task closures ignore their cancellation token, so cancellation changes visible state but does not abort the request;
-- `async_task.wait` polls every 20 ms and defaults to 295 seconds;
-- completed task records have no retention cleanup; and
-- dropping/evicting a runtime does not explicitly cancel its running tasks.
+- each runtime submits work to a bounded four-worker executor with a bounded queue;
+- `async_task.cancel` is a guarded operation because it mutates task state; cancellation is observed by CLI and HTTP task loops;
+- `async_task.wait` polls every 20 ms, defaults to 295 seconds, and is clamped by the active execution deadline;
+- completed records are retained for five minutes; and
+- task results are limited to 10 MiB before retention.
 
-There is no general 10 MiB result limit or five-minute cleanup in the Rust task manager, despite stale comments in `src/preload/task.lua` that describe such retention.
+Session eviction explicitly cancels all runtime tasks. Subprocesses run in their own process group on Unix, so timeout/cancellation terminates descendants as well as the immediate child.
 
 ### 11.5 Secrets and auth
 
@@ -443,7 +434,7 @@ Schema wrappers intend to increment:
 - `fn.<path>.err`; and
 - `fn.<path>.blocked`.
 
-Metric increments use an atomic SQLite upsert. They are issued by the Rust schema wrapper, so both MCP and CLI calls record usage without routing through a guarded raw Lua function.
+Metric increments are buffered by a runtime for one Lua execution, then atomically flushed as a SQLite transaction. This preserves wrapper-level accounting for MCP and CLI calls without synchronous SQLite contention in high-frequency loops.
 
 `stats` creates a runtime to discover currently available function paths, reads historical metric records from the store, and reports both available functions and metrics for functions that no longer exist.
 
@@ -494,21 +485,6 @@ Service tests are found by recursively scanning for Lua files with a `tests` pat
 ## 15. Proposed architectural improvements
 
 This section is a review backlog, not current behavior.
-
-### P1 — Correct lifecycle, scheduling, and persistence
-
-6. **Replace request-ID ordering with a per-session queue.** Assign a monotonic sequence at receipt, use RAII cleanup, and avoid the global pending-arrivals registry and 5 ms heuristic.
-7. **Do not build runtimes under the session-map lock.** Use an entry/future state so an expensive new session does not block unrelated session lookup/creation.
-8. **Move blocking work off async executor threads.** Run Lua sessions on dedicated workers or `spawn_blocking`, with bounded concurrency and cancellation.
-9. **Unify deadlines.** Make Rust callbacks, task waits, ZIP work, HTTP, and subprocess trees observe one cancellation/deadline abstraction.
-11. **Batch metric writes.** Metric updates are atomic SQLite upserts; add batching if wrapper-level write volume becomes significant.
-12. **Make cache ownership coherent.** Store values and expiry in the same scope, or define cache as explicitly per-runtime rather than process-shared value/runtime-local expiry.
-13. **Manage task lifecycle.** Use a bounded executor, completed-task retention, aggregate result limits, HTTP cancellation, process-group termination, and cancellation on session eviction.
-
-### P1 — Consolidate bootstrap and validation
-
-15. **Make `validate` validate schemas.** Force `capabilities` discovery, report the service directories actually loaded, surface walk errors, and distinguish packs from nested `init.lua` files.
-16. **Either implement service introductions or remove the contract.** Initialization should build instructions from loaded `__intro` values if that remains part of service design.
 
 ### P2 — Harden resources and observability
 

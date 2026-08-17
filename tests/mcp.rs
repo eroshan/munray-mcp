@@ -56,7 +56,7 @@ fn mcp_initializes_lists_tools_and_reuses_session_state() {
     assert_eq!(payload["session_id"], "same");
     assert_eq!(payload["result"], 42);
     let context_response = request(
-        json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return capabilities.ai_context().runtime.server_id","session_id":"same"}}}),
+        json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return ctx_init().runtime.server_id","session_id":"same"}}}),
     );
     let context_payload: Value = serde_json::from_str(
         context_response["result"]["content"][0]["text"]
@@ -70,6 +70,28 @@ fn mcp_initializes_lists_tools_and_reuses_session_state() {
     );
     drop(stdin);
     assert!(child.wait().unwrap().success());
+}
+
+#[test]
+fn initialize_instructions_include_loaded_service_introductions() {
+    let services = tempfile::tempdir().unwrap();
+    let src = services.path().join("demo/src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("init.lua"),
+        "demo = { __intro = 'Use Demo for compact integration calls.' }",
+    )
+    .unwrap();
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["--svc-dir", services.path().to_str().unwrap(), "mcp"])
+        .write_stdin(line(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})))
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("How to use munray-mcp MCP"))
+        .stdout(predicates::str::contains("Available service integrations"))
+        .stdout(predicates::str::contains("Use Demo for compact integration calls."));
 }
 
 #[test]
@@ -336,15 +358,15 @@ end
     }
     assert!(started.elapsed() < Duration::from_millis(450));
 
+    // Admission sequence, rather than JSON-RPC IDs, defines FIFO. Give the
+    // first request a turn through the transport before admitting the second.
     stdin
-        .write_all(
-            [
-                line(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"demo.pause(); ordered = 42; return ordered","session_id":"fifo"}}})),
-                line(json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return ordered","session_id":"fifo"}}})),
-            ]
-            .concat()
-            .as_bytes(),
-        )
+        .write_all(line(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"demo.pause(); ordered = 42; return ordered","session_id":"fifo"}}})).as_bytes())
+        .unwrap();
+    stdin.flush().unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    stdin
+        .write_all(line(json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return ordered","session_id":"fifo"}}})).as_bytes())
         .unwrap();
     stdin.flush().unwrap();
     let mut payloads = std::collections::HashMap::new();

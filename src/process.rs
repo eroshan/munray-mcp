@@ -31,7 +31,14 @@ pub(crate) fn capture_cancellable(
     max_stdout: usize,
     cancellation: Option<&AtomicBool>,
 ) -> io::Result<CapturedOutput> {
+    let Some(timeout) = crate::deadline::effective(timeout) else {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "execution deadline exceeded",
+        ));
+    };
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    configure_process_group(command);
     let mut child = command.spawn()?;
     let stdout = child.stdout.take().expect("stdout configured as piped");
     let stderr = child.stderr.take().expect("stderr configured as piped");
@@ -42,12 +49,12 @@ pub(crate) fn capture_cancellable(
         match child.try_wait()? {
             Some(status) => break (status, false, false),
             None if cancellation.is_some_and(|cancelled| cancelled.load(Ordering::Acquire)) => {
-                let _ = child.kill();
+                kill_process_tree(&mut child);
                 break (child.wait()?, false, true);
             }
             None if started.elapsed() < timeout => thread::sleep(Duration::from_millis(10)),
             None => {
-                let _ = child.kill();
+                kill_process_tree(&mut child);
                 break (child.wait()?, true, false);
             }
         }
@@ -66,6 +73,37 @@ pub(crate) fn capture_cancellable(
         timed_out,
         cancelled,
     })
+}
+
+#[cfg(unix)]
+fn configure_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    // A separate group lets cancellation terminate grandchildren as well as the
+    // shell/immediate child returned by Command::spawn.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setpgid(0, 0) == 0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        });
+    }
+}
+
+#[cfg(not(unix))]
+fn configure_process_group(_command: &mut Command) {}
+
+#[cfg(unix)]
+fn kill_process_tree(child: &mut std::process::Child) {
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_process_tree(child: &mut std::process::Child) {
+    let _ = child.kill();
 }
 
 fn read_capped(mut reader: impl Read, limit: usize) -> io::Result<(Vec<u8>, bool)> {

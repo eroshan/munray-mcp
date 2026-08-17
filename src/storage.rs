@@ -171,6 +171,31 @@ impl Store {
         )?)
     }
 
+    /// Atomically apply a group of wrapper metrics. Callers aggregate within an
+    /// execution and flush at its boundary, reducing SQLite lock contention in
+    /// high-frequency Lua loops without weakening durable metric semantics.
+    pub fn increment_metrics_batch(&self, metrics: &HashMap<String, f64>) -> Result<()> {
+        if metrics.is_empty() {
+            return Ok(());
+        }
+        let now = now_s();
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction()?;
+        for (name, delta) in metrics {
+            validate_name("metric name", name)?;
+            if !delta.is_finite() {
+                bail!("invalid metric delta");
+            }
+            transaction.execute(
+                "INSERT INTO metrics(name, value, created_at_s, updated_at_s) VALUES(?1, ?2, ?3, ?3)
+                 ON CONFLICT(name) DO UPDATE SET value=metrics.value + excluded.value, updated_at_s=excluded.updated_at_s",
+                params![name, delta, now],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn list_metrics(&self) -> Result<Vec<Metric>> {
         let connection = self.connection.lock();
         let mut statement = connection.prepare("SELECT name, value FROM metrics ORDER BY name")?;

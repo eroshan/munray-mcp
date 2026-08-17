@@ -23,6 +23,15 @@ pub(crate) fn effective(requested: Duration) -> Option<Duration> {
     })
 }
 
+/// Whether the deadline inherited by this synchronous callback has elapsed.
+pub(crate) fn expired() -> bool {
+    ACTIVE.with(|active| {
+        active
+            .get()
+            .is_some_and(|deadline| Instant::now() >= deadline)
+    })
+}
+
 impl Drop for Guard {
     fn drop(&mut self) {
         ACTIVE.set(self.0);

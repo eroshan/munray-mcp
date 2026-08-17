@@ -1,8 +1,4 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeMap, fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
@@ -42,12 +38,9 @@ pub fn run(dir: &Path) -> Result<usize> {
                 .with_context(|| format!("cannot inspect services directory {}", dir.display()));
         }
     };
-    let packs = external
-        .map(discover_packs)
-        .transpose()?
-        .unwrap_or_default();
     let runtime = LuaRuntime::new(external)?;
-    let mut warnings = metadata_warnings(&runtime, &packs)?;
+    let packs = &runtime.loaded_services().packs;
+    let mut warnings = metadata_warnings(&runtime, packs)?;
     let schemas = runtime
         .discovered_schemas()
         .context("failed to discover namespace schemas")?;
@@ -72,37 +65,20 @@ pub fn run(dir: &Path) -> Result<usize> {
         }
         bail!("validation failed")
     }
-    println!("✓ Services loaded successfully\n\nSchema:\n  ✓  Core (builtin)");
-    let builtin: BTreeSet<_> = ["helpers", "json", "secrets", "store", "async_task"]
-        .into_iter()
-        .collect();
-    let roots: BTreeSet<String> = schemas
-        .keys()
-        .filter_map(|n| n.split('.').next().map(str::to_owned))
-        .collect();
-    let external_roots: Vec<_> = roots
-        .iter()
-        .filter(|root| !builtin.contains(root.as_str()))
-        .collect();
-    if external_roots.is_empty() {
-        println!("\nNo external services found");
+    println!("✓ Services loaded successfully");
+    println!("\nSchemas: {} namespace(s) discovered", schemas.len());
+    if packs.is_empty() {
+        println!("\nNo external service packs loaded");
     } else {
-        for root in &external_roots {
-            println!("  ✓  {root}");
-        }
-        println!("\nUser service(s):");
-        for root in &external_roots {
-            println!("  •  {root}");
-        }
-    }
-    let internal: Vec<_> = roots
-        .iter()
-        .filter(|root| builtin.contains(root.as_str()))
-        .collect();
-    if !internal.is_empty() {
-        println!("\nInternal services:");
-        for root in internal {
-            println!("  •  {root}");
+        println!("\nLoaded service pack directories:");
+        for pack in packs {
+            println!("  ✓ {} ({})", pack.name, pack.directory.display());
+            if !pack.nested_init_files.is_empty() {
+                println!("    nested init.lua module(s):");
+                for path in &pack.nested_init_files {
+                    println!("      - {}", path.display());
+                }
+            }
         }
     }
     if !warnings.is_empty() {
@@ -116,32 +92,20 @@ pub fn run(dir: &Path) -> Result<usize> {
     Ok(packs.len())
 }
 
-fn discover_packs(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut packs = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        if !entry.file_name().to_string_lossy().starts_with('.')
-            && entry.path().is_dir()
-            && entry.path().join("src").is_dir()
-        {
-            packs.push(entry.path());
-        }
-    }
-    packs.sort();
-    Ok(packs)
-}
-
-fn metadata_warnings(runtime: &LuaRuntime, packs: &[PathBuf]) -> Result<Vec<String>> {
+fn metadata_warnings(
+    runtime: &LuaRuntime,
+    packs: &[crate::services::ServicePack],
+) -> Result<Vec<String>> {
     let mut out = Vec::new();
     for pack in packs {
-        let name = pack.file_name().unwrap_or_default().to_string_lossy();
-        if let Some(v) = runtime.global_field_json(&name, "__intro")? {
+        let name = &pack.name;
+        if let Some(v) = runtime.global_field_json(name, "__intro")? {
             if !v.is_string() {
                 out.push(format!("{name}: __intro must be a string"));
             }
         }
         let mut allowed = Vec::new();
-        if let Some(v) = runtime.global_field_json(&name, "__allowed_cli_commands")? {
+        if let Some(v) = runtime.global_field_json(name, "__allowed_cli_commands")? {
             match v.as_array() {
                 Some(values) => {
                     for value in values {
@@ -159,14 +123,12 @@ fn metadata_warnings(runtime: &LuaRuntime, packs: &[PathBuf]) -> Result<Vec<Stri
             }
         }
         let mut uses_cli = false;
-        for entry in walkdir::WalkDir::new(pack.join("src")).follow_links(true) {
-            let entry = entry?;
-            if entry.file_type().is_file() && entry.path().extension().is_some_and(|x| x == "lua") {
-                let text = fs::read_to_string(entry.path())?;
-                uses_cli |= text.contains("sys.cli.")
-                    || text.contains("sys.blob.from_cli")
-                    || text.contains("sys.secrets.command");
-            }
+        for path in &pack.source_files {
+            let text = fs::read_to_string(path)
+                .with_context(|| format!("cannot read service module {}", path.display()))?;
+            uses_cli |= text.contains("sys.cli.")
+                || text.contains("sys.blob.from_cli")
+                || text.contains("sys.secrets.command");
         }
         if uses_cli && allowed.is_empty() {
             out.push(format!(

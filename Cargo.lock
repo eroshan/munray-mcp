@@ -1059,6 +1059,7 @@ dependencies = [
  "assert_cmd",
  "base64",
  "clap",
+ "libc",
  "mlua",
  "parking_lot",
  "predicates",

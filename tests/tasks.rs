@@ -26,7 +26,7 @@ fn cancel_schema_declares_guarded_policy() {
     let runtime = LuaRuntime::new(None).unwrap();
     let result = runtime
         .execute(
-            "local schema = capabilities.schema('async_task'); for _, fn in ipairs(schema.functions) do if fn.name == 'cancel' then return fn.guarded end end",
+            "local schema = schema('async_task'); for _, fn in ipairs(schema.functions) do if fn.name == 'cancel' then return fn.guarded end end",
             ExecutionMode::ReadOnly,
             "<test>",
         )

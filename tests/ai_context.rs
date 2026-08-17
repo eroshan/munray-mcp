@@ -10,7 +10,7 @@ fn core_ai_context_matches_the_reference_exactly() {
 
     let context = runtime
         .execute(
-            "return capabilities.ai_context()",
+            "return ctx_init()",
             ExecutionMode::ReadOnly,
             "<ai-context-parity>",
         )
@@ -20,7 +20,7 @@ fn core_ai_context_matches_the_reference_exactly() {
 
     let encoded = runtime
         .execute(
-            "return json.encode(capabilities.ai_context(), true)",
+            "return json.encode(ctx_init(), true)",
             ExecutionMode::ReadOnly,
             "<ai-context-encoding-parity>",
         )

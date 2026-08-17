@@ -303,10 +303,7 @@ fn zip_to_text(
         .unwrap_or(default_dir);
     resolve(root, &extract_dir)?;
 
-    let listing = Command::new("unzip")
-        .args(["-Z1", archive.to_string_lossy().as_ref()])
-        .output()
-        .map_err(|error| format!("failed to run unzip: {error}"))?;
+    let listing = run_unzip(["-Z1", archive.to_string_lossy().as_ref()])?;
     if !listing.status.success() {
         return Err(format!(
             "failed to inspect zip: {}",
@@ -329,10 +326,7 @@ fn zip_to_text(
         {
             continue;
         }
-        let output = Command::new("unzip")
-            .args(["-p", archive.to_string_lossy().as_ref(), name])
-            .output()
-            .map_err(|error| format!("failed to extract zip entry: {error}"))?;
+        let output = run_unzip(["-p", archive.to_string_lossy().as_ref(), name])?;
         if !output.status.success() {
             continue;
         }
@@ -367,6 +361,30 @@ fn zip_to_text(
         "summary":format!("Zip archive with {} files{suffix}", all_files.len()),
         "files":files,
     }))
+}
+
+struct UnzipOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn run_unzip<'a>(args: impl IntoIterator<Item = &'a str>) -> Result<UnzipOutput, String> {
+    let Some(timeout) = crate::deadline::effective(std::time::Duration::from_secs(60)) else {
+        return Err("execution deadline exceeded before ZIP work".into());
+    };
+    let mut command = Command::new("unzip");
+    command.args(args);
+    let output = crate::process::capture(&mut command, timeout, 200 * 1024 * 1024)
+        .map_err(|error| format!("failed to run unzip: {error}"))?;
+    if output.timed_out {
+        return Err("ZIP extraction timed out".into());
+    }
+    Ok(UnzipOutput {
+        status: output.status,
+        stdout: output.stdout,
+        stderr: output.stderr,
+    })
 }
 
 fn is_text_extension(name: &str) -> bool {
