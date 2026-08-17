@@ -84,6 +84,7 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 | default / `run [file]` | Execute stdin or a file in a new runtime, in guarded mode. There is no interactive REPL. |
 | `mcp` | Serve MCP over stdin/stdout and, on Unix, start the local ingest socket. |
 | `validate` | Constructs a temporary runtime, forces schema discovery and validation, and reports the service-pack directories actually loaded. Nested `init.lua` files are reported as modules, not packs. |
+| `bootstrap-service <name>` | Create the schema-valid service-pack skeleton from compiled assets in the configured service directory. Refuses to overwrite an existing pack unless `--force` is supplied. |
 | `test` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. |
 | `ingest` | Send UTF-8 stdin to an already-created MCP session through its Unix socket. |
 | `list-sys` | Construct a runtime and enumerate registered `sys.*` functions. |
@@ -166,37 +167,11 @@ The modular preload files are the sole Lua bootstrap implementation. Their expli
 
 Service source and persisted snippets load before restrictions are applied. Wrapped external functions temporarily restore the full `io`, `os`, `package`, and `require` values captured at bootstrap.
 
-## 7. Service loading and capability discovery
+## 7. Service-pack integration
 
-### 7.1 Service source and examples
+The service-pack layout, loading contract, schema metadata, examples, and public raw-API contract are maintained in [services/SERVICE-DESIGN.mkd](services/SERVICE-DESIGN.mkd). Packs are loaded during runtime construction; a missing service directory leaves only core APIs available. `validate` builds a temporary runtime and forces capability discovery, so invalid pack metadata fails validation.
 
-`services::load` scans immediate child directories of the configured services directory, sorted by name. It processes one complete service at a time.
-
-For each service pack (an immediate child directory with `src`):
-
-- `<service>/src` is walked recursively with symlinks followed, and walk errors are surfaced;
-- only `<service>/src/init.lua` is the pack entrypoint and executes first; nested `init.lua` files are ordinary modules sorted with the remaining source paths;
-- files execute one-by-one with their filesystem path as the chunk name;
-- `<service>/examples/**/*.lua` files are read as text, not executed, and walk errors are surfaced; and
-- relative example path components have `_` converted to `.`, then are prefixed with the service name unless the file is the service-level example.
-
-A missing service directory is accepted and leaves only core APIs available. Every pack must contain `src/init.lua`. The load report records every pack directory and nested `init.lua` module; `validate` prints loaded directories and any nested `init.lua` modules.
-
-Service packs may declare a string `__intro`. MCP startup loads the same trusted bootstrap used by sessions and appends non-empty introductions from successfully loaded packs under **Available service integrations** in the initialization instructions.
-
-### 7.2 Schemas and capabilities
-
-A public namespace is a Lua table with `__schema`. The modular capabilities implementation:
-
-- discovers schema roots by walking selected tables in `_G`;
-- validates required namespace/function fields on first discovery;
-- caches schemas, functions, types, examples, and warnings;
-- exposes `ctx_init`, `schema`, and `examples`; and
-- optionally warns about missing examples when `MUNRAY_MCP_WARN_MISSING_EXAMPLES=1` was visible during bootstrap.
-
-Capability discovery is lazy for normal runtime use. `validate` explicitly forces it, so malformed schema metadata fails validation.
-
-Dynamic snippet installation and deletion invalidate the private discovery cache automatically, so the next `ctx_init()`, `schema`, or `examples` call discovers the current snippet functions.
+The loader records accepted pack directories and nested `init.lua` modules for `validate` reporting. MCP initialization appends non-empty `__intro` strings from successfully loaded packs under **Available service integrations**. Dynamic snippet changes invalidate capability discovery, so the next `ctx_init()`, `schema()`, or `examples()` observes the current snippet functions.
 
 ## 8. MCP request lifecycle
 
@@ -316,26 +291,9 @@ The raw CLI and command-secret implementations require exact command-name member
 
 ## 11. Core Lua API and raw facilities
 
-### 11.1 Raw surface
+### 11.1 Public API contract
 
-| Namespace | Implemented operations |
-| --- | --- |
-| `sys` | `exec_mode` |
-| `sys.auth` | `basic`, `bearer` |
-| `sys.blob` | `from_cli`, `from_http`, `len` |
-| `sys.cli` | `text`, `json`, `start_text`, `start_json` |
-| `sys.graphql` | `request`, `list`, `start_request` |
-| `sys.http` | `request`, `list`, `start_request` |
-| `sys.ingest` | `get` |
-| `sys.secrets` | `env`, `command` |
-| `sys.kv` | `put`, `get`, `delete`, `keys`, `len`, `clear` |
-| `sys.snippets` | `save`, `get`, `list`, `delete` |
-| `sys.task` | `status`, `result`, `wait`, `cancel` |
-| `sys.test` | `set_mode`, `start_task` |
-| `sys.url` | query/path escape and unescape |
-| `sys.vfs` | `mkdirp`, `remove`, text/blob write, text read, `stat`, `list`, `to_text`, `expose` |
-
-Public core namespaces include `json`, `yaml`, `helpers`, `store`, `async_task`, `vfs`, and `ingest`; discovery is exposed through the global `ctx_init`, `schema`, and `examples` functions. `errutil` is intentionally internal and has no schema.
+The complete pack-facing raw and public Lua API contract is maintained in [services/SERVICE-DESIGN.mkd](services/SERVICE-DESIGN.mkd). This document records implementation and operational behavior of those facilities below. `errutil` is intentionally internal and has no schema.
 
 ### 11.2 CLI and process capture
 

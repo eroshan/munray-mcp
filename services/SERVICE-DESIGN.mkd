@@ -1,20 +1,22 @@
 # Service Pack Design Document
 
-This document is the living source of truth for **munray-mcp service packs**.
+This document is the living source of truth for **munray service packs**.
 
-Service packs are **external user-managed inputs** loaded from a services directory (`SVC_DIR`). The munray-mcp core binary is service-agnostic and provides only base runtime + raw primitives.
+Service packs are **external user-managed inputs** loaded from the configured services directory (`SVC_DIR`; pass it explicitly with `--svc-dir`). The munray core binary is service-agnostic and provides the runtime and raw primitives.
 
-Core architecture lives in [ARCHITECTURE.md](../ARCHITECTURE.md).
+> **Trust boundary:** a pack is trusted host code, not a sandboxed plugin. Install and run only packs you trust. Pack code can access host-facing Lua facilities while it is loaded; never fetch, generate, or execute untrusted Lua as part of a pack.
+
+This is the complete authoring contract. [ARCHITECTURE.md](../ARCHITECTURE.md) describes core implementation and operational behavior, not pack-development requirements.
 
 ---
 
 ## 1. What Is a Service Pack?
 
-A service pack is a directory `SVC_DIR/<service>/` that contributes one or more Lua namespaces (typically rooted at `<service>.*`) to the munray-mcp Lua runtime.
+A service pack is a directory `SVC_DIR/<service>/` that contributes one or more Lua namespaces (typically rooted at `<service>.*`) to the munray Lua runtime.
 
 A service pack:
 
-- is loaded from the filesystem (not embedded in the munray-mcp binary)
+- is loaded from the filesystem (not embedded in the munray binary)
 - should be stateless (no hidden global state required to call functions)
 - declares `__schema` metadata so the core `ctx_init()`, `schema()`, and `examples()` APIs can expose function signatures, types, and examples
 - may be CLI-based (using `sys.cli.text`, `sys.cli.json`, `sys.cli.start_text`, `sys.cli.start_json`), HTTP-based (using `sys.http.request`, `sys.http.list`, `sys.http.start_request`), or GraphQL-based (using `sys.graphql.request`, `sys.graphql.list`, `sys.graphql.start_request`)
@@ -22,86 +24,23 @@ A service pack:
 
 ---
 
-## 2. Directory Layout (Contract)
+## 2. Bootstrap a Service Pack
 
-Each service pack lives under:
+Create a schema-valid starter pack with:
 
-```
-SVC_DIR/
-  <service>/
-    src/
-      init.lua
-      *.lua
-    examples/
-      <service>.lua   # service-level examples (common entry point)
-      *.lua           # namespace-level examples (one file per namespace; each file returns a single runnable string)
-    tests/
-      *_test.lua
-    README.md            (optional)
+```sh
+munray bootstrap-service <service> --svc-dir <SVC_DIR>
 ```
 
-### 2.1 `src/init.lua` (Required)
+`<service>` must start with a lowercase ASCII letter and may then contain lowercase letters, digits, and underscores. The command refuses to overwrite an existing pack unless `--force` is explicit.
 
-`src/init.lua` must:
-
-- create the public namespace table (e.g., `myservice = { ... }`)
-- require/load any internal helpers needed by the pack
-- attach `__schema` tables to exported namespaces (e.g., `myservice.resource.__schema = { ... }`)
-- optionally define `myservice.__intro` as a short human-readable intro appended to the MCP initialize instructions under **Available service integrations**
-- optionally define `myservice.__allowed_cli_commands` as the explicit list of CLI commands the service is allowed to execute
-- capture raw primitives into locals (upvalues) at load time
-
-Capturing raw primitives prevents user code from monkey-patching `sys` transport primitives after load and ensures consistent behavior:
-
-```lua
--- src/init.lua
-myservice = { resource = {} }
-
-myservice.__intro = [[
-Use this service for MyService operations.
-Prefer narrow scope and structured outputs.
-]]
-
-myservice.__allowed_cli_commands = { "myservice-cli" }
-
--- Capture raw primitives as upvalues
-local raw_cli_json = sys.cli.json
-local raw_http_request = sys.http.request
-
--- Do not build execution-mode guards in Lua; Go core enforces read-only vs guarded.
-```
-
-### 2.2 Internal Modules
-
-Use internal modules for shared logic, but keep them private:
-
-- prefer filenames like `_client.lua`, `_util.lua`
-- do not export them to `_G`
+The generated source, example, and capability test are the canonical common-pack starting point. Their inline comments cover the generated layout, load order, namespace/schema setup, private helpers, raw-primitive capture, CLI allowlisting, secret handling, guarded mutations, iterators, and the required next steps. Replace every `<...>` placeholder and the `NOT_IMPLEMENTED` starter operation before using the pack.
 
 ---
 
-## 3. Load Order (What the Core Does)
+## 3. API Design Rules
 
-The core runtime loads Lua in a deterministic order:
-
-1. Go raw primitives are available (`sys.exec_mode`, `sys.cli.text`, `sys.cli.json`, `sys.cli.start_text`, `sys.cli.start_json`, `sys.http.request`, `sys.http.list`, `sys.http.start_request`, `sys.url.query_escape`, `sys.url.query_unescape`, `sys.url.path_escape`, `sys.url.path_unescape`, `sys.graphql.request`, `sys.graphql.list`, `sys.graphql.start_request`, `sys.task.status`, `sys.task.result`, `sys.task.cancel`, `sys.task.wait`, `sys.secrets.env`, `sys.secrets.command`, `sys.auth.basic`, `sys.auth.bearer`, `sys.test.start_task`, `sys.store.put`, `sys.store.get`, `sys.store.delete`, `sys.store.keys`, `sys.store.len`, `sys.store.clear`, `sys.store.cache_set`, `sys.store.cache_get`, `sys.blob.from_cli`, `sys.blob.from_http`, `sys.blob.len`, `sys.vfs.mkdirp`, `sys.vfs.write_text`, `sys.vfs.write_blob`, `sys.vfs.read_text`, `sys.vfs.stat`, `sys.vfs.list`, `sys.vfs.to_text`, `sys.vfs.expose`)
-2. Embedded preload Lua executes (helpers, store, task, vfs, capabilities)
-3. Service packs load one pack at a time in alphabetical service order:
-   - `<service>/src/init.lua` first, when present
-   - all other `<service>/src/**/*.lua` files in path order; nested `init.lua` files are ordinary modules, not pack entrypoints
-4. The core captures security validators to prevent runtime overrides
-5. User code executes (REPL or MCP). In REPL and `./munray-mcp test`, direct `sys.*` calls are allowed for debugging and service-pack tests.
-
-Implications for pack authors:
-
-- `init.lua` should create the namespace early so other files can safely attach functions
-- keep side effects minimal (avoid network calls at load time)
-
----
-
-## 4. API Design Rules
-
-### 4.1 Stateless Functions
+### 3.1 Stateless Functions
 
 Service functions must be stateless and explicit about their inputs:
 
@@ -113,7 +52,7 @@ Recommended return conventions (standardized by schema contracts):
 - Non-list functions: `(result, err)` where `err == nil` on success and `err` is a structured table on failure (see `core.result` / `core.error` below)
 - List functions: return iterators (see `core.iter` below)
 
-### 4.2 Iterator-Only Lists
+### 3.2 Iterator-Only Lists
 
 List operations should return iterators that may lazily paginate.
 
@@ -156,7 +95,7 @@ end
 
 ---
 
-## 5. Execution Modes (Read-only vs Guarded)
+## 4. Execution Modes (Read-only vs Guarded)
 
 The core enforces execution mode:
 
@@ -165,7 +104,7 @@ The core enforces execution mode:
 
 Service-pack Lua must not implement any execution-mode validation (no `sys.exec_mode()` branching, no Lua-side allow/deny lists). The Lua-side mutation signal is `__schema.functions[].guarded = true`; Rust core uses schema metadata to wrap/enforce guarded calls. Raw primitives are internal-only and must be used only from schema-backed public wrappers.
 
-### 5.1 Mark Guarded Functions in Schema
+### 4.1 Mark Guarded Functions in Schema
 
 Every guarded function must be marked:
 
@@ -176,7 +115,7 @@ This allows:
 - correct discovery output via `ctx_init()`, `schema()`, and `examples()`
 - function-level gating (where enforced)
 
-### 5.2 Transport and Mutation Policy
+### 4.2 Transport and Mutation Policy
 
 Transport details are **not** the source of truth for guarded policy.
 
@@ -184,9 +123,9 @@ Transport details are **not** the source of truth for guarded policy.
 - Do **not** rely on transport shape (CLI verb, HTTP method, GraphQL operation type) as the guarded declaration
 - Declare mutation only once: `__schema.functions[].guarded = true`
 
-Raw primitives are internal implementation tools. Go derives guarded policy from the enclosing schema-backed public wrapper, not from raw transport arguments.
+Raw primitives are internal implementation tools. Rust derives guarded policy from the enclosing schema-backed public wrapper, not from raw transport arguments.
 
-### 5.3 Refresh Pattern
+### 4.3 Refresh Pattern
 
 For mutations, prefer a “refresh” behavior:
 
@@ -194,13 +133,13 @@ For mutations, prefer a “refresh” behavior:
 2. re-fetch via GET
 3. return the updated resource table
 
-### 5.4 Task-Based Async (Delayed / Background Execution)
+### 4.4 Task-Based Async (Delayed / Background Execution)
 
 Some expensive read-only operations may be exposed as **delayed/background tasks**.
 
 Rules:
 
-- Service packs must not run Lua in the background; background work runs in Go and returns a **Task handle** (`task_id`, a string).
+- Service packs must not run Lua in the background; background work runs in Rust and returns a **Task handle** (`task_id`, a string).
 - Starting async work is done via `sys.cli.start_text`, `sys.cli.start_json`, or `sys.http.start_request` (see Transport Primitives below).
 - Async start calls snapshot the caller's remaining execution deadline at start time. Any transport/provider timeout inside the task is capped by that external deadline snapshot, but the task is not cancelled just because the start call already returned.
 - Polling and retrieving results is done via the core `async_task.*` API:
@@ -220,21 +159,21 @@ Note: The async mechanism is standardized (task-based) and is described by the `
 
 ---
 
-## 6. Capabilities and `__schema` Metadata
+## 5. Capabilities and `__schema` Metadata
 
 `ctx_init()`, `schema(namespace)`, and `examples(namespace)` are implemented in core Lua and discover `__schema` tables attached to namespaces.
 
 The discovery cache is invalidated automatically when a snippet installs or deletes a namespace/function; there is no public invalidation API.
 
-### 6.1 Service API Design Philosophy
+### 5.1 Service API Design Philosophy
 - Learn Once, Apply Everywhere - 4 fundamental patterns cover all operations
 - Compact & Clear - Minimal tokens, maximum clarity
 - Predictable - If you've used one namespace, you know them all
 - Complete - Bidirectional navigation, no missing operations
 
-### 6.2 Minimal Schema Shape
+### 5.2 Minimal Schema Shape
 
-Schema is contract-driven:
+Schema is contract-driven. Every namespace schema must declare non-empty `namespace` and `service` strings plus `functions` (use `{}` for a root with only resources). Every function descriptor must include `name`, `signature`, `description`, `guarded`, `returns_contract`, and `returns_typed`; `params`, `types`, examples, and `resources` are optional.
 
 - Non-iterator functions MUST declare `returns_contract = "core.result"`
 - Iterator functions MUST declare `returns_contract = "core.iter"` and `yields = "<TypeName>"`
@@ -247,6 +186,8 @@ A typical (non-iterator) schema table:
 
 ```lua
 myservice.resource.__schema = {
+  namespace = "myservice.resource",
+  service = "myservice",
   summary = "Resource operations",
   functions = {
     {
@@ -286,6 +227,8 @@ A typical iterator schema table:
 
 ```lua
 myservice.resource.__schema = {
+  namespace = "myservice.resource",
+  service = "myservice",
   summary = "Resource operations",
   functions = {
     {
@@ -326,19 +269,19 @@ Notes:
 - examples should be short, copy/paste runnable, and sufficient to show the intended call shape
 - avoid long prose, test scaffolding, or execution gates in example code unless they are essential to the example itself
 
-### 6.3 Example Placement (Namespace vs Method)
+### 5.3 Example Placement (Namespace vs Method)
 
-- Service-level examples live in `examples/<service>.lua` (file name matches the service directory name) and must be a single runnable Lua snippet (the file contents are returned as a string).
+- Service-level examples live in `examples/<service>.lua` (file name matches the service directory name) and must contain one runnable Lua snippet (the file contents are returned as a string).
   - Access via: `examples("<service>")`
 - Namespace-level examples live in `examples/<namespace>.lua` and must be a single runnable Lua snippet (the file contents are returned as a string).
   - For a service `jira`, `examples/issue.lua` maps to `examples("jira.issue")`.
-  - Nested namespaces may be represented with directories (e.g. `examples/mr.lua` for `gitlab.mr`).
+  - Nested namespaces may be represented with directories: `examples/admin/user.lua` maps to `examples("gitlab.admin.user")`. Underscores in any example path component become dots.
 - Method-level examples stay inline on the schema: `__schema.functions[method].examples` must be a single runnable string (use a Lua multiline literal like `[[...]]`).
 
 Example style guidance:
 
 - Keep examples focused and compact; include only the minimum setup needed to understand the call.
-- Examples are documentation loaded by `examples(...)`; they are not executed automatically by `./munray-mcp test` unless a test explicitly loads and runs them.
+- Examples are documentation loaded by `examples(...)`; they are not executed automatically by `munray test` unless a test explicitly loads and runs them.
 - Do not add read-only fallback branches, `run_*` gates, or other test-phase protections unless the example genuinely needs them.
 - For guarded APIs, it is fine for the example to show the direct guarded call when that is the clearest usage.
 
@@ -358,11 +301,13 @@ Non-blocking warnings:
 
 ---
 
-## 7. Transport Primitives
+## 6. Transport Primitives
 
-### 7.0 Complete Raw Primitive Surface (Core)
+### 6.0 Complete Raw Primitive Surface (Core)
 
-For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `sys.*` calls are also allowed in the local REPL and `./munray-mcp test` for debugging and service-pack tests.
+The implementation is Rust; `sys.*` is available only while trusted pack code is loaded and through schema-backed public wrappers. It is not available to MCP session scripts.
+
+For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `sys.*` calls are also allowed in local CLI execution and `munray test` for debugging and service-pack tests.
 
 - Execution mode:
   - `sys.exec_mode() -> "readonly"|"guarded"` (introspection only; do not use for Lua-side permission checks)
@@ -397,16 +342,17 @@ For completeness, the core currently exposes these **raw primitives** to the Lua
   - supports `pagination.kind = "cursor"` or `"offset"`
 - GraphQL (async):
   - `sys.graphql.start_request(base_url, document, opts?) -> (task_id|nil, err)`
-- Store (Go KV):
-  - `sys.store.put(type, key, value, opts?) -> (true|nil, err)`
-  - `sys.store.get(type, key) -> (value|nil, err)`
-  - `sys.store.delete(type, key) -> (deleted|nil, err)`
-  - `sys.store.keys(type) -> (keys|nil, err)`
-  - `sys.store.len(type) -> (count|nil, err)`
-  - `sys.store.clear(type) -> (true|nil, err)`
-  - `sys.store.cache_set(key, value, ttl_s) -> (true|nil, err)`
-  - `sys.store.cache_get(key) -> (value|nil, err)`
-  - Note: High-level `store.save_snippet(...)` is also available globally for user convenience
+- Durable KV (raw):
+  - `sys.kv.put(namespace, key, value, opts?) -> (true|nil, err)`
+  - `sys.kv.get(namespace, key) -> (value|nil, err)`
+  - `sys.kv.delete(namespace, key) -> (deleted|nil, err)`
+  - `sys.kv.keys(namespace) -> (keys|nil, err)`
+  - `sys.kv.len(namespace) -> (count|nil, err)`
+  - `sys.kv.clear(namespace) -> (true|nil, err)`
+  - The schema-backed public equivalent is `kv.*`; use a service-specific namespace and an expiry option when appropriate. Core-owned snippets and metrics are not exposed through KV.
+- Persisted snippets (core-managed; normally not needed by packs):
+  - `sys.snippets.save({path:string, code:string, schema_expr?:string, example?:string, description?:string}) -> (true|nil, err)`
+  - `sys.snippets.get(path)`, `sys.snippets.list()`, and `sys.snippets.delete(path)`
 - Secrets (raw):
   - `sys.secrets.env(name) -> (SecretRef|nil, err)`
   - `sys.secrets.command(spec) -> (SecretRef|nil, err)`
@@ -421,12 +367,13 @@ For completeness, the core currently exposes these **raw primitives** to the Lua
   - `sys.task.wait(task_id, timeout_ms?) -> (result|nil, err)`
 - Ingest (core/internal):
   - `sys.ingest.get(token) -> (text|nil, err)`
-  - Used by the core `ingest.get(token)` wrapper to read UTF-8 text previously uploaded into the current MCP session via `munray-mcp ingest`.
+  - Used by the core `ingest.get(token)` wrapper to read UTF-8 text previously uploaded into the current MCP session via `munray ingest`.
   - Not intended as a general service-pack transport primitive.
 - Test helper (test/validation only):
+  - `sys.test.set_mode("readonly"|"guarded") -> true`
   - `sys.test.start_task(delay_ms, result) -> (task_id|nil, err)`
 
-### 7.0.1 Blob handles (binary-safe)
+### 6.0.1 Blob handles (binary-safe)
 
 The core also exposes **opaque blob handles** for binary data capture. Blob bytes are never surfaced to Lua as strings; they can only be written to VFS via `sys.vfs.write_blob`.
 
@@ -440,13 +387,14 @@ The core also exposes **opaque blob handles** for binary data capture. Blob byte
   - Capture buffers are reserved against the runtime-wide 512 MiB blob quota before bytes are read; a requested `max_bytes` larger than remaining quota is capped to that remaining reservation.
 - `sys.blob.len(blob) -> (n|nil, err)`
 
-### 7.0.2 Virtual filesystem (VFS)
+### 6.0.2 Virtual filesystem (VFS)
 
 VFS is scratch-only storage backed by OS temp dir, scoped **per Lua runtime** (for MCP this typically means per live session). Raw VFS primitives are internal-only like the rest of `sys.*`; guarded policy still comes from the enclosing schema-backed public wrapper.
 
 Raw primitives:
 
 - `sys.vfs.mkdirp(path) -> (true|nil, err)`
+- `sys.vfs.remove(path) -> (removed|nil, err)`
 - `sys.vfs.write_text(path, text, opts?) -> (info|nil, err)`
   - `opts`: `{ overwrite?: boolean }` (default true)
 - `sys.vfs.write_blob(path, blob, opts?) -> (info|nil, err)`
@@ -476,7 +424,7 @@ Convenience wrappers (core preload):
 
 Service packs should generally prefer stable core primitives when available (for example `sys.secrets.*`, `sys.auth.*`, and `async_task.status`/`async_task.result`/`async_task.wait`).
 
-### 7.1 CLI-based Packs
+### 6.1 CLI-based Packs
 
 Use `sys.cli.text`, `sys.cli.json`, `sys.cli.start_text`, and `sys.cli.start_json` for safe CLI execution.
 
@@ -497,7 +445,7 @@ Delayed execution (task-based async) uses the `sys.cli.start_*` variants:
 - `sys.cli.start_json(tool, args, opts?) -> task_id`
 - `sys.cli.start_text(tool, args, opts?) -> task_id`
 
-### 7.2 HTTP-based Packs
+### 6.2 HTTP-based Packs
 
 Use `sys.http.request`, `sys.http.list`, and `sys.http.start_request`.
 
@@ -514,7 +462,7 @@ Delayed execution (task-based async) uses:
 
 - `sys.http.start_request(method, base_url, path, opts?) -> task_id`
 
-### 7.3 GraphQL-based Packs
+### 6.3 GraphQL-based Packs
 
 Use `sys.graphql.request`, `sys.graphql.list`, and `sys.graphql.start_request` when the upstream API is GraphQL-shaped rather than REST-shaped.
 
@@ -527,16 +475,16 @@ Guidelines:
 
 ---
 
-## 8. Pagination Patterns
+## 7. Pagination Patterns
 
-### 8.1 Offset/Page Pagination (Typical)
+### 7.1 Offset/Page Pagination (Typical)
 
 If your API uses numeric pages:
 
 - implement a list iterator that requests pages lazily
 - stop when a page is empty or when the API indicates no next page
 
-### 8.2 Token Pagination (Cursor-based)
+### 7.2 Token Pagination (Cursor-based)
 
 If your API uses opaque next-page tokens, prefer `sys.http.list` when available.
 
@@ -584,7 +532,7 @@ Guidance:
 
 ---
 
-## 9. Errors
+## 8. Errors
 
 Prefer returning structured errors as tables:
 
@@ -602,13 +550,13 @@ For iterator failures, it’s acceptable to throw (error) when the next page fet
 
 ---
 
-## 10. Secrets and Auth
+## 9. Secrets and Auth
 
 Use the core raw secret/auth primitives for credentials.
 
 - Secret sources live under `sys.secrets.*`
 - Auth constructors live under `sys.auth.*`
-- Both return opaque references that are only resolved during transport calls in Go
+- Both return opaque references that are only resolved during transport calls in Rust
 
 Examples:
 
@@ -638,34 +586,34 @@ Rules:
 
 ---
 
-## 11. Tests and Validation
+## 10. Tests and Validation
 
-### 11.1 Validate Packs
+### 10.1 Validate Packs
 
 Run:
 
 ```bash
-./munray-mcp validate --svc-dir <path>
+munray validate --svc-dir <path>
 ```
 
 For command help / flags:
 
 ```bash
-./munray-mcp help validate
+munray help validate
 ```
 
-### 11.2 Run Pack Tests
+### 10.2 Run Pack Tests
 
 Run:
 
 ```bash
-./munray-mcp test --svc-dir <path>
+munray test --svc-dir <path>
 ```
 
 For command help / flags:
 
 ```bash
-./munray-mcp help test
+munray help test
 ```
 
 Test guidance:
@@ -673,27 +621,25 @@ Test guidance:
 - include a `tests/capabilities_test.lua` to ensure schemas are discoverable
 - include at least one integration-style test if the service is expected to be used for real workflows
 - tests should fail clearly when external prerequisites are missing
-- `examples/*.lua` files are not executed automatically by `./munray-mcp test`; add an explicit test only when you intentionally want to validate example content or behavior
+- `examples/*.lua` files are not executed automatically by `munray test`; add an explicit test only when you intentionally want to validate example content or behavior
 
 ---
 
-## 12. Adding a New Service Pack (Checklist)
+## 11. Adding a New Service Pack (Checklist)
 
-1. Create `SVC_DIR/<service>/src/init.lua` and define `<service> = { ... }`
-2. Implement one small read-only function end-to-end
-3. Add `__schema` for the namespace and include a runnable example
-4. Add a simple `tests/capabilities_test.lua`
-5. Run `./munray-mcp validate --svc-dir ...`
-6. Run `./munray-mcp test --svc-dir ...`
-7. Add example scripts under `examples/`
+1. Run `munray bootstrap-service <service> --svc-dir <SVC_DIR>`.
+2. Replace the generated placeholders and implement one small read-only operation end-to-end.
+3. Add an integration-style test when the service needs external prerequisites.
+4. Run `munray validate --svc-dir <SVC_DIR>`.
+5. Run `munray test --svc-dir <SVC_DIR>`.
 
 ---
 
-## 13. Maintaining This Document
+## 12. Maintaining This Document
 
 Update this file whenever:
 
-- the expected service pack directory layout changes
+- the generated bootstrap pack layout or template changes
 - schema conventions change
 - security/guarded enforcement rules change
 - new pagination or transport primitives are added

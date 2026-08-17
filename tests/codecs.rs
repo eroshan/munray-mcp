@@ -5,7 +5,7 @@ fn yaml_codec_roundtrips_lua_tables() {
     let runtime = LuaRuntime::new(None).unwrap();
     let execution = runtime
         .execute(
-            "local text = yaml.encode({name='munray-mcp', values={1,2}}); local value = yaml.decode(text); return value",
+            "local text = yaml.encode({name='munray', values={1,2}}); local value = yaml.decode(text); return value",
             ExecutionMode::ReadOnly,
             "<test>",
         )

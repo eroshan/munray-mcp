@@ -89,7 +89,7 @@ fn initialize_instructions_include_loaded_service_introductions() {
         .write_stdin(line(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})))
         .assert()
         .success()
-        .stdout(predicates::str::contains("How to use munray-mcp MCP"))
+        .stdout(predicates::str::contains("How to use munray MCP"))
         .stdout(predicates::str::contains("Available service integrations"))
         .stdout(predicates::str::contains("Use Demo for compact integration calls."));
 }

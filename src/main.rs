@@ -1,4 +1,8 @@
-use std::{io::Read, path::PathBuf};
+use std::{
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
@@ -9,9 +13,11 @@ use mcp_server::{
 };
 use rmcp::{ServiceExt, transport::stdio};
 
+const COMMAND_NAME: &str = "munray";
+
 #[derive(Parser)]
 #[command(
-    name = env!("CARGO_PKG_NAME"),
+    name = COMMAND_NAME,
     version,
     about = "Persistent Lua runtime and MCP server"
 )]
@@ -38,6 +44,14 @@ enum Command {
     Mcp,
     /// Validate that all service-pack Lua modules load.
     Validate,
+    /// Create a safe, schema-valid service-pack skeleton.
+    BootstrapService {
+        /// Lua namespace and directory name (lowercase letters, digits, and underscores).
+        name: String,
+        /// Replace files in an existing service directory.
+        #[arg(long)]
+        force: bool,
+    },
     /// Push UTF-8 stdin into an existing MCP session.
     Ingest {
         #[arg(long)]
@@ -76,6 +90,10 @@ async fn run() -> Result<()> {
         services::validate(&dir)?;
         return Ok(());
     }
+    if let Some(Command::BootstrapService { name, force }) = &cli.command {
+        bootstrap_service(cli.svc_dir.as_deref(), name, *force)?;
+        return Ok(());
+    }
     cli.store_path = Some(resolve_store_path(cli.store_path)?);
     match cli.command {
         None | Some(Command::Run { file: None }) => {
@@ -107,6 +125,7 @@ async fn run() -> Result<()> {
             json,
         }) => run_ingest(&server, &session, json),
         Some(Command::Validate) => unreachable!("handled before store resolution"),
+        Some(Command::BootstrapService { .. }) => unreachable!("handled before store resolution"),
         Some(Command::Test) => run_service_tests(cli.svc_dir),
         Some(Command::ListSys) => {
             let runtime = LuaRuntime::new(None)?;
@@ -121,6 +140,65 @@ async fn run() -> Result<()> {
         }
         Some(Command::Stats { json }) => run_stats(cli.svc_dir, cli.store_path, json),
     }
+}
+
+const BOOTSTRAP_INIT: &str = include_str!("assets/service-bootstrap/init.lua");
+const BOOTSTRAP_RESOURCE: &str = include_str!("assets/service-bootstrap/resource.lua");
+const BOOTSTRAP_CAPABILITIES_TEST: &str =
+    include_str!("assets/service-bootstrap/capabilities_test.lua");
+const BOOTSTRAP_EXAMPLE: &str = include_str!("assets/service-bootstrap/service.lua");
+
+fn bootstrap_service(service_dir: Option<&Path>, name: &str, force: bool) -> Result<()> {
+    if !is_service_name(name) {
+        bail!(
+            "invalid service name {name:?}: use lowercase ASCII letters, digits, and underscores; the first character must be a letter"
+        );
+    }
+    let service_dir = require_service_dir(service_dir.map(Path::to_path_buf))?;
+    let pack_dir = service_dir.join(name);
+    if pack_dir.exists() && !pack_dir.is_dir() {
+        bail!("service path {} is not a directory", pack_dir.display());
+    }
+    if pack_dir.exists() && !force {
+        bail!(
+            "service pack {} already exists; choose another name or pass --force to replace bootstrap files",
+            pack_dir.display()
+        );
+    }
+
+    let files = [
+        ("src/init.lua", BOOTSTRAP_INIT),
+        ("src/resource.lua", BOOTSTRAP_RESOURCE),
+        ("tests/capabilities_test.lua", BOOTSTRAP_CAPABILITIES_TEST),
+        (&format!("examples/{name}.lua"), BOOTSTRAP_EXAMPLE),
+    ];
+    for (relative, template) in files {
+        let path = pack_dir.join(relative);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, template.replace("{{SERVICE}}", name))?;
+        println!("Created {}", path.display());
+    }
+    println!("\nNext steps:");
+    println!("  1. Replace <...> placeholders and the NOT_IMPLEMENTED starter operation.");
+    println!(
+        "  2. {} validate --svc-dir {}",
+        COMMAND_NAME,
+        service_dir.display()
+    );
+    println!(
+        "  3. {} test --svc-dir {}",
+        COMMAND_NAME,
+        service_dir.display()
+    );
+    Ok(())
+}
+
+fn is_service_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    matches!(bytes.next(), Some(b'a'..=b'z'))
+        && bytes.all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 fn run_ingest(server: &str, session: &str, json_mode: bool) -> Result<()> {

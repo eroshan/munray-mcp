@@ -7,7 +7,7 @@ repo = "example-group/example-project"
 -- Example 1: Create a feature branch
 print("=== Example 1: Create a branch ===")
 local branch, create_err = gitlab.branch.create(repo, {
-  name = "feature/munray-mcp-test",
+  name = "feature/munray-test",
   ref = "main"
 })
 if create_err then
@@ -71,7 +71,7 @@ end
 
 -- Example 6: Create and delete workflow
 print("\n=== Example 6: Create and delete workflow ===")
-local test_branch = "test/munray-mcp-" .. os.time()
+local test_branch = "test/munray-" .. os.time()
 print("Creating temporary branch:", test_branch)
 
 local new_branch, create_temp_err = gitlab.branch.create(repo, {

@@ -1113,7 +1113,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "munray-mcp"
+name = "munray"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -1,6 +1,6 @@
 [package]
 # Canonical product/binary name. Cargo exposes it as CARGO_PKG_NAME at build time.
-name = "munray-mcp"
+name = "munray"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"

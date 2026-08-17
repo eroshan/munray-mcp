@@ -1,4 +1,4 @@
-# munray-mcp
+# munray
 
 Rust host for a persistent Lua runtime exposed through the
 official Rust MCP SDK.
@@ -7,20 +7,20 @@ official Rust MCP SDK.
 cargo build --release
 
 # Pipe Lua directly to the CLI (there is intentionally no interactive REPL).
-printf 'print("hello")\nreturn 6 * 7\n' | target/release/munray-mcp
+printf 'print("hello")\nreturn 6 * 7\n' | target/release/munray
 
 # Or execute a file.
-target/release/munray-mcp run script.lua
+target/release/munray run script.lua
 
 # Start the MCP stdio server and load external service packs.
-target/release/munray-mcp mcp --svc-dir ./services
+target/release/munray mcp --svc-dir ./services
 
 # Keep store values and saved Lua snippets across restarts.
-target/release/munray-mcp --store-path ~/.local/share/munray-mcp/store.db \
+target/release/munray --store-path ~/.local/share/munray/store.db \
   --svc-dir ./services mcp
 
 # Push text into an existing MCP session (server id is the MCP process id).
-some-command | target/release/munray-mcp ingest \
+some-command | target/release/munray ingest \
   --server <pid> --session <session-id> --json
 ```
 
@@ -42,7 +42,7 @@ make mcp
 `--svc-dir` points at the existing service-pack tree. Rust replaces the
 host application; it does not translate or alter service Lua source.
 The SQLite store defaults to `$MUNRAY_MCP_HOME/store.db`, where
-`MUNRAY_MCP_HOME` defaults to `$HOME/.local/share/munray-mcp`. `--store-path`
+`MUNRAY_MCP_HOME` defaults to `$HOME/.local/share/munray`. `--store-path`
 (or `MUNRAY_MCP_STORE_PATH`) overrides it. Saved functions, schemas, examples,
 metrics, and expiring KV values are durable and shared by runtimes using the
 same store path.
@@ -66,12 +66,12 @@ and ingest. Unix ingest sockets are created with owner-only permissions.
 | `--store-path` | `MUNRAY_MCP_STORE_PATH` | SQLite durable store, saved snippets, expiring KV values, and usage metrics; defaults to `$MUNRAY_MCP_HOME/store.db` |
 | `--logs-dir` | `MUNRAY_MCP_LOGS_DIR` | Owner-only JSONL execution logging |
 
-`munray-mcp stats` reports wrapped public function availability and usage metrics
+`munray stats` reports wrapped public function availability and usage metrics
 from the durable store:
 
 ```sh
-target/release/munray-mcp stats
-target/release/munray-mcp stats --json
+target/release/munray stats
+target/release/munray stats --json
 ```
 
 ## Installation
@@ -81,10 +81,10 @@ make install
 make services-install
 ```
 
-The binary is installed to `~/.local/bin/munray-mcp` by default. Development
-service links are installed under `~/.local/share/munray-mcp/services`. Override
+The binary is installed to `~/.local/bin/munray` by default. Development
+service links are installed under `~/.local/share/munray/services`. Override
 `INSTALL_BIN_DIR` or `MUNRAY_MCP_HOME` when invoking Make if desired.
 
 At runtime, service-directory precedence is `--svc-dir`, then
 `MUNRAY_MCP_SVC_DIR`, then `$MUNRAY_MCP_HOME/services`. If `MUNRAY_MCP_HOME` is unset,
-it defaults to `$HOME/.local/share/munray-mcp`.
+it defaults to `$HOME/.local/share/munray`.

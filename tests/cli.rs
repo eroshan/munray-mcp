@@ -12,8 +12,91 @@ fn help_lists_supported_commands() {
         .stdout(predicate::str::contains("mcp"))
         .stdout(predicate::str::contains("run"))
         .stdout(predicate::str::contains("validate"))
+        .stdout(predicate::str::contains("bootstrap-service"))
         .stdout(predicate::str::contains("test"))
         .stdout(predicate::str::contains("stats"));
+}
+
+#[test]
+fn bootstrap_service_creates_a_valid_tested_starter_pack() {
+    let services = tempfile::tempdir().unwrap();
+    let service_dir = services.path().to_str().unwrap();
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args([
+            "--svc-dir",
+            service_dir,
+            "bootstrap-service",
+            "example_service",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Created"));
+
+    let pack = services.path().join("example_service");
+    assert!(pack.join("src/init.lua").is_file());
+    assert!(pack.join("src/resource.lua").is_file());
+    assert!(pack.join("tests/capabilities_test.lua").is_file());
+    assert!(pack.join("examples/example_service.lua").is_file());
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["--svc-dir", service_dir, "validate"])
+        .assert()
+        .success();
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["--svc-dir", service_dir, "test"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("PASS"));
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args([
+            "--svc-dir",
+            service_dir,
+            "bootstrap-service",
+            "example_service",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("already exists"));
+
+    fs::write(pack.join("src/init.lua"), "corrupted").unwrap();
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args([
+            "--svc-dir",
+            service_dir,
+            "bootstrap-service",
+            "example_service",
+            "--force",
+        ])
+        .assert()
+        .success();
+    assert!(
+        fs::read_to_string(pack.join("src/init.lua"))
+            .unwrap()
+            .contains("example_service")
+    );
+}
+
+#[test]
+fn bootstrap_service_rejects_non_lua_service_names() {
+    let services = tempfile::tempdir().unwrap();
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args([
+            "--svc-dir",
+            services.path().to_str().unwrap(),
+            "bootstrap-service",
+            "not-valid",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid service name"));
 }
 
 #[test]

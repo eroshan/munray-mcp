@@ -4,7 +4,7 @@
 -- background tasks started via sys.cli.start_*, sys.http.start_*, etc.
 --
 -- Task records are retained for the lifetime of their runtime. Tasks are
--- session-scoped: you must poll/result/wait using the same munray-mcp session
+-- session-scoped: you must poll/result/wait using the same munray session
 -- that created the task_id.
 --
 -- NOTE: This namespace is called `async_task` (not `task`) to avoid common variable
