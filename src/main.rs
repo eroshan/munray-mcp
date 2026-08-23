@@ -198,6 +198,7 @@ const BOOTSTRAP_RESOURCE: &str = include_str!("assets/service-bootstrap/resource
 const BOOTSTRAP_CAPABILITIES_TEST: &str =
     include_str!("assets/service-bootstrap/capabilities_test.lua");
 const BOOTSTRAP_EXAMPLE: &str = include_str!("assets/service-bootstrap/service.lua");
+const BOOTSTRAP_SKILL: &str = include_str!("assets/service-bootstrap/SKILL.md");
 
 fn bootstrap_service(service_dir: Option<&Path>, name: &str, force: bool) -> Result<()> {
     if !is_service_name(name) {
@@ -222,6 +223,7 @@ fn bootstrap_service(service_dir: Option<&Path>, name: &str, force: bool) -> Res
         ("src/resource.lua", BOOTSTRAP_RESOURCE),
         ("tests/capabilities_test.lua", BOOTSTRAP_CAPABILITIES_TEST),
         (&format!("examples/{name}.lua"), BOOTSTRAP_EXAMPLE),
+        ("SKILL.md", BOOTSTRAP_SKILL),
     ];
     for (relative, template) in files {
         let path = pack_dir.join(relative);

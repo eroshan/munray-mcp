@@ -34,7 +34,7 @@ munray svc bootstrap <service> --svc-dir <SVC_DIR>
 
 `<service>` must start with a lowercase ASCII letter and may then contain lowercase letters, digits, and underscores. The command refuses to overwrite an existing pack unless `--force` is explicit. List installed packs with `munray svc list`. Remove a pack with `munray svc uninstall <service> --force`; removal requires explicit confirmation.
 
-The generated source, example, and capability test are the canonical common-pack starting point. Their inline comments cover the generated layout, load order, namespace/schema setup, private helpers, raw-primitive capture, CLI allowlisting, secret handling, guarded mutations, iterators, and the required next steps. Replace every `<...>` placeholder and the `NOT_IMPLEMENTED` starter operation before using the pack.
+The generated source, example, capability test, and root `SKILL.md` are the canonical common-pack starting point. `SKILL.md` is a self-contained, agent-neutral guide for autonomous service development; it directs agents to use `munray sys list --format markdown` as the installed-version reference for raw primitives rather than requiring core source access. The generated files and their inline comments cover the layout, load order, namespace/schema setup, private helpers, raw-primitive capture, CLI allowlisting, secret handling, guarded mutations, iterators, and the required next steps. Replace every `<...>` placeholder and the `NOT_IMPLEMENTED` starter operation before using the pack.
 
 ---
 

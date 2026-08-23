@@ -61,6 +61,8 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
     assert!(pack.join("src/resource.lua").is_file());
     assert!(pack.join("tests/capabilities_test.lua").is_file());
     assert!(pack.join("examples/example_service.lua").is_file());
+    let skill = fs::read_to_string(pack.join("SKILL.md")).unwrap();
+    assert!(skill.contains("munray sys list --format markdown"));
 
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
