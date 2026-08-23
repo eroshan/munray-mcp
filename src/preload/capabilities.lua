@@ -628,32 +628,32 @@ function examples(namespace)
 
 	local d = discover()
 
-	-- 1) Exact namespace match.
-	-- This avoids ambiguity when a root namespace (e.g. "jira") has functions and
-	-- also exposes child namespaces that themselves have examples (e.g. "jira.issue").
+	-- 1) Method-level lookup: namespace.method. Inline method examples take
+	-- precedence over a file that happens to map to the same dotted key.
+	local ns, method = namespace:match("^(.*)%.([^.]+)$")
+	if ns and method and d.functions_by_namespace[ns] then
+		for _, fn in ipairs(d.functions_by_namespace[ns] or {}) do
+			if fn.name == method and type(fn.examples) == "string" then
+				return fn.examples
+			end
+		end
+	end
+
+	-- 2) Exact namespace/file example.
 	if d.examples_by_namespace[namespace] then
 		return d.examples_by_namespace[namespace]
 	end
 
-	-- 2) Method-level lookup: namespace.fn.method
-	local ns, method = namespace:match("^(.*)%.([^.]+)$")
 	if not (ns and method and d.functions_by_namespace[ns]) then
 		return nil
 	end
 
-	-- 2a) Inline method example.
-	for _, fn in ipairs(d.functions_by_namespace[ns] or {}) do
-		if fn.name == method and type(fn.examples) == "string" then
-			return fn.examples
-		end
-	end
-
-	-- 2b) Namespace-level fallback.
+	-- 3) Namespace-level fallback.
 	if d.examples_by_namespace[ns] then
 		return d.examples_by_namespace[ns]
 	end
 
-	-- 2c) Service-level fallback.
+	-- 4) Service-level fallback.
 	local service = ns:match("^([^.]+)")
 	if service and d.examples_by_namespace[service] then
 		return d.examples_by_namespace[service]

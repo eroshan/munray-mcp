@@ -1,6 +1,6 @@
 use std::fs;
 
-use mcp_server::runtime::LuaRuntime;
+use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 use serde_json::Value;
 
 #[test]
@@ -17,6 +17,56 @@ fn capability_json_schema_declares_guarded_and_rejects_obsolete_mutating() {
     );
     assert_eq!(function["properties"]["guarded"]["type"], "boolean");
     assert!(function["properties"].get("mutating").is_none());
+}
+
+#[test]
+fn inline_method_examples_override_same_key_file_examples() {
+    let services = tempfile::tempdir().unwrap();
+    let pack = services.path().join("demo");
+    fs::create_dir_all(pack.join("src")).unwrap();
+    fs::create_dir_all(pack.join("examples/resource")).unwrap();
+    fs::write(
+        pack.join("src/init.lua"),
+        r#"
+demo = {
+  resource = {
+    get = function() return {}, nil end,
+    __schema = {
+      namespace = "demo.resource", service = "demo", functions = {
+        {
+          name = "get", signature = "()", description = "Get.", guarded = false,
+          returns_contract = "core.result",
+          returns_typed = {
+            { name = "result", type = "table" },
+            { name = "err", type = "core.error|nil" },
+          },
+          examples = "return 'inline method example'",
+        },
+      },
+    },
+  },
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        pack.join("examples/resource/get.lua"),
+        "return 'file example'\n",
+    )
+    .unwrap();
+
+    let runtime = LuaRuntime::new(Some(services.path())).unwrap();
+    let execution = runtime
+        .execute(
+            "return examples('demo.resource.get')",
+            ExecutionMode::ReadOnly,
+            "<inline-example-precedence>",
+        )
+        .unwrap();
+    assert_eq!(
+        execution.result,
+        serde_json::json!("return 'inline method example'")
+    );
 }
 
 #[test]
