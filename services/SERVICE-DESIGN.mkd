@@ -620,9 +620,10 @@ munray help test
 
 Test guidance:
 
-- include a `tests/capabilities_test.lua` to ensure schemas are discoverable
-- include at least one integration-style test if the service is expected to be used for real workflows
-- tests should fail clearly when external prerequisites are missing
+- keep `tests/capabilities_test.lua` offline for schema discovery, validation errors, and unsupported-operation contracts
+- keep `tests/integration_tests.lua` read-only and enabled by default; cover authentication, API wiring, normalization, pagination, and reads without changing remote state
+- keep mutations in `tests/integraion_guarded_tests.lua`; it runs only when `MUNRAY_RUN_GUARDED=1`, uses deterministic tightly scoped fixtures, and must clean them up
+- when the guarded gate is absent or not `1`, return the standard skip marker so the harness reports `SKIPPED`, not `PASS`
 - `examples/*.lua` files are not executed automatically by `munray test`; add an explicit test only when you intentionally want to validate example content or behavior
 
 ---
@@ -631,7 +632,7 @@ Test guidance:
 
 1. Run `munray svc bootstrap <service> --svc-dir <SVC_DIR>`.
 2. Replace the generated placeholders and implement one small read-only operation end-to-end.
-3. Add an integration-style test when the service needs external prerequisites.
+3. Configure the generated read-only integration test and add guarded mutation coverage only when a safe fixture is available.
 4. Run `munray validate --svc-dir <SVC_DIR>`.
 5. Run `munray test --svc-dir <SVC_DIR>`.
 

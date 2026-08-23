@@ -87,12 +87,12 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 | `svc bootstrap <name>` | Create the schema-valid service-pack skeleton and self-contained `.agents/skills/munray-service-pack/SKILL.md` from compiled assets in the configured service directory. Refuses to overwrite an existing pack unless `--force` is supplied. `svc bootstrap [<name>] --update` replaces only the generated skill for one pack, or for every pack when the name is omitted. |
 | `svc list` | List service-pack directories with a `src` directory in the configured service directory. |
 | `svc uninstall <name> --force` | Remove a service-pack directory after explicit confirmation. |
-| `test` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. |
+| `test` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. Generated `integraion_guarded_tests.lua` files run in guarded mode only when `MUNRAY_RUN_GUARDED=1`; otherwise their skip marker is reported as `SKIPPED`. |
 | `ingest` | Send UTF-8 stdin to an already-created MCP session through its Unix socket. |
 | `sys list` | Construct a runtime, reflect registered `sys.*` functions, enrich them with core metadata, and render the catalog. Indented text is the default; `--format markdown` and `--format json` provide alternate representations. |
 | `stats` | Combine available schema paths with metrics found in the durable store. |
 
-CLI execution permits direct `sys.*` calls and uses guarded mode. Service tests permit direct raw calls, retain the full standard library, and initially use read-only mode.
+CLI execution permits direct `sys.*` calls and uses guarded mode. Service tests permit direct raw calls, retain the full standard library, and initially use read-only mode. The generated guarded-integration test is the exception only when `MUNRAY_RUN_GUARDED=1`; it also explicitly enables guarded test mode before mutations.
 
 ### 3.2 Path resolution
 

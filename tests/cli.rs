@@ -60,6 +60,8 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
     assert!(pack.join("src/init.lua").is_file());
     assert!(pack.join("src/resource.lua").is_file());
     assert!(pack.join("tests/capabilities_test.lua").is_file());
+    assert!(pack.join("tests/integration_tests.lua").is_file());
+    assert!(pack.join("tests/integraion_guarded_tests.lua").is_file());
     assert!(pack.join("examples/example_service.lua").is_file());
     let skill =
         fs::read_to_string(pack.join(".agents/skills/munray-service-pack/SKILL.md")).unwrap();
@@ -72,10 +74,12 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
         .success();
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
+        .env("MUNRAY_RUN_GUARDED", "0")
         .args(["--svc-dir", service_dir, "test"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("PASS"));
+        .stdout(predicate::str::contains("PASS"))
+        .stdout(predicate::str::contains("SKIPPED"));
 
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()

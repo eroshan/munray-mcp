@@ -59,6 +59,8 @@ A bootstrapped pack has this layout:
     <service>.lua
   tests/
     capabilities_test.lua
+    integration_tests.lua
+    integraion_guarded_tests.lua
 ```
 
 `src/init.lua` is the sole entry point and loads before every other `src/*.lua`
@@ -89,9 +91,14 @@ service name in sync across directory name, root table, and schema `service`.
    `guarded = true` in its function schema; do not implement Lua-side permission
    checks and do not derive mutation policy from an HTTP method or CLI verb.
 
-Do not make external/network tests run by default. Capability and unit-style
-fixtures must run offline. Add integration tests only when explicitly requested
-or when credentials, endpoint, and a safe test target have been supplied.
+Keep capability and unit-style fixtures offline. The generated read-only
+integration test runs by default and must validate authentication, API wiring,
+response normalization, pagination, and read operations without changing remote
+state. Configure its safe read fixture as part of implementation. Keep guarded
+integration tests separate: they run only with `MUNRAY_RUN_GUARDED=1`, use a
+tightly scoped fixture and deterministic names, and always clean up remote
+state. When that gate is absent or not exactly `1`, return the standard test
+skip marker so the harness reports `SKIPPED`, not `PASS`.
 
 ## Public API contract
 
@@ -210,12 +217,18 @@ deadline.
 - Add a short runnable service-level example in `examples/<service>.lua`.
 - Use inline `examples = [[...]]` for function-specific usage where valuable.
 - Keep examples focused and do not add test-only execution gates to them.
-- Keep `tests/capabilities_test.lua` and update it when operation names change.
-  It must verify that schemas are discoverable and that the implementation's
-  expected result/error shape is truthful.
-- For deterministic tests, stub the wrapper helper or use a fixture. External
-  integration tests are opt-in and must fail clearly when prerequisites are
-  absent.
+- Keep `tests/capabilities_test.lua` offline and update it when operation names
+  change. It must verify schema discovery, validation errors, and
+  unsupported-operation contracts without network access.
+- Keep `tests/integration_tests.lua` read-only and enabled by default. It must
+  verify authentication, API wiring, response normalization, pagination, and
+  representative reads without changing remote state.
+- Keep `tests/integraion_guarded_tests.lua` separate for mutations. It may run
+  only when `MUNRAY_RUN_GUARDED=1`, must use a tightly scoped deterministically
+  named fixture, and must clean up even after assertion failures. When gated
+  off, return `{ __munray_test_status = "SKIPPED", reason = "..." }` so the
+  test harness reports the file as skipped.
+- For deterministic tests, stub the wrapper helper or use a fixture.
 
 ## Completion checklist
 
@@ -238,6 +251,12 @@ Verify all of the following:
   independently investigated; the user was asked if that investigation was
   inconclusive before a raw API was selected;
 - CLI commands are allowlisted and command arguments are structured;
-- examples are runnable and tests are offline by default;
+- offline capability tests, default read-only integration tests, and gated
+  guarded integration tests remain separate;
+- read-only integration tests cover auth, wiring, normalization, pagination,
+  and reads without remote mutations;
+- guarded integration tests require `MUNRAY_RUN_GUARDED=1`, use deterministic
+  scoped fixtures, and clean up; a disabled gate reports `SKIPPED`;
+- examples are runnable and offline capability tests run without network access;
 - `ctx_init()`, `schema("<namespace>")`, and `examples("<target>")` expose
   the intended public API.

@@ -215,6 +215,10 @@ const BOOTSTRAP_INIT: &str = include_str!("assets/service-bootstrap/init.lua");
 const BOOTSTRAP_RESOURCE: &str = include_str!("assets/service-bootstrap/resource.lua");
 const BOOTSTRAP_CAPABILITIES_TEST: &str =
     include_str!("assets/service-bootstrap/capabilities_test.lua");
+const BOOTSTRAP_INTEGRATION_TEST: &str =
+    include_str!("assets/service-bootstrap/integration_tests.lua");
+const BOOTSTRAP_GUARDED_INTEGRATION_TEST: &str =
+    include_str!("assets/service-bootstrap/integraion_guarded_tests.lua");
 const BOOTSTRAP_EXAMPLE: &str = include_str!("assets/service-bootstrap/service.lua");
 const BOOTSTRAP_SKILL: &str = include_str!("assets/service-bootstrap/SKILL.md");
 
@@ -240,6 +244,11 @@ fn bootstrap_service(service_dir: Option<&Path>, name: &str, force: bool) -> Res
         ("src/init.lua", BOOTSTRAP_INIT),
         ("src/resource.lua", BOOTSTRAP_RESOURCE),
         ("tests/capabilities_test.lua", BOOTSTRAP_CAPABILITIES_TEST),
+        ("tests/integration_tests.lua", BOOTSTRAP_INTEGRATION_TEST),
+        (
+            "tests/integraion_guarded_tests.lua",
+            BOOTSTRAP_GUARDED_INTEGRATION_TEST,
+        ),
         (&format!("examples/{name}.lua"), BOOTSTRAP_EXAMPLE),
         (
             ".agents/skills/munray-service-pack/SKILL.md",
@@ -536,6 +545,13 @@ fn nonempty_env_path(name: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+fn is_skipped_test(result: &serde_json::Value) -> bool {
+    result
+        .get("__munray_test_status")
+        .and_then(serde_json::Value::as_str)
+        == Some("SKIPPED")
+}
+
 fn run_service_tests(service_dir: Option<PathBuf>) -> Result<()> {
     let dir = require_service_dir(service_dir)?;
     let mut failures = 0;
@@ -552,8 +568,26 @@ fn run_service_tests(service_dir: Option<PathBuf>) -> Result<()> {
             continue;
         }
         let code = std::fs::read_to_string(path)?;
+        let guarded_integration = path
+            .file_name()
+            .is_some_and(|name| name == "integraion_guarded_tests.lua");
+        let mode = if guarded_integration
+            && std::env::var("MUNRAY_RUN_GUARDED").ok().as_deref() == Some("1")
+        {
+            ExecutionMode::Guarded
+        } else {
+            ExecutionMode::ReadOnly
+        };
         let runtime = LuaRuntime::new_with_options(Some(&dir), true)?;
-        match runtime.execute(&code, ExecutionMode::ReadOnly, &path.to_string_lossy()) {
+        match runtime.execute(&code, mode, &path.to_string_lossy()) {
+            Ok(execution) if is_skipped_test(&execution.result) => {
+                let reason = execution
+                    .result
+                    .get("reason")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("test requested skip");
+                println!("SKIPPED {}: {reason}", path.display());
+            }
             Ok(_) => println!("PASS {}", path.display()),
             Err(error) => {
                 failures += 1;
