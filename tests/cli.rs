@@ -61,7 +61,8 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
     assert!(pack.join("src/resource.lua").is_file());
     assert!(pack.join("tests/capabilities_test.lua").is_file());
     assert!(pack.join("examples/example_service.lua").is_file());
-    let skill = fs::read_to_string(pack.join("SKILL.md")).unwrap();
+    let skill =
+        fs::read_to_string(pack.join(".agents/skills/munray-service-pack/SKILL.md")).unwrap();
     assert!(skill.contains("munray sys list --format markdown"));
 
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
@@ -106,6 +107,69 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
         fs::read_to_string(pack.join("src/init.lua"))
             .unwrap()
             .contains("example_service")
+    );
+}
+
+#[test]
+fn bootstrap_update_replaces_the_skill_for_one_or_all_service_packs() {
+    let services = tempfile::tempdir().unwrap();
+    for name in ["first_service", "second_service"] {
+        let pack = services.path().join(name);
+        fs::create_dir_all(pack.join("src")).unwrap();
+        fs::create_dir_all(pack.join(".agents/skills/munray-service-pack")).unwrap();
+        fs::write(
+            pack.join(".agents/skills/munray-service-pack/SKILL.md"),
+            "outdated",
+        )
+        .unwrap();
+    }
+    let service_dir = services.path().to_str().unwrap();
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["--svc-dir", service_dir, "svc", "bootstrap", "--update"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated").count(2));
+    for name in ["first_service", "second_service"] {
+        let skill = fs::read_to_string(
+            services
+                .path()
+                .join(name)
+                .join(".agents/skills/munray-service-pack/SKILL.md"),
+        )
+        .unwrap();
+        assert!(skill.contains("Munray service-pack development"));
+    }
+
+    fs::write(
+        services
+            .path()
+            .join("first_service/.agents/skills/munray-service-pack/SKILL.md"),
+        "outdated again",
+    )
+    .unwrap();
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args([
+            "--svc-dir",
+            service_dir,
+            "svc",
+            "bootstrap",
+            "first_service",
+            "--update",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Updated").count(1));
+    assert!(
+        fs::read_to_string(
+            services
+                .path()
+                .join("first_service/.agents/skills/munray-service-pack/SKILL.md"),
+        )
+        .unwrap()
+        .contains("Munray service-pack development")
     );
 }
 

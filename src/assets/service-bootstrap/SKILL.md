@@ -31,6 +31,16 @@ design documents.
   Treat that command's output as the version-specific reference for `sys.*`
   signatures, options, return values, and primitive descriptions. Re-run it if
   Munray is upgraded.
+- Prefer an existing service CLI as the backend wherever it can provide the
+  required operation. First independently investigate the service's official
+  tooling and the target environment for a suitable CLI. If that does not
+  identify a usable CLI, ask the user whether one is available. A CLI that
+  proxies API requests and manages authentication is the preferred API backend;
+  use it as the proxy rather than reimplementing its authentication or making
+  raw API requests. Likewise, use a CLI-supported temporary-auth-token flow
+  when available. If no such flow can be found during investigation, ask the
+  user about it. Raw HTTP or GraphQL API calls are a last resort, only after
+  these CLI options have been exhausted.
 
 ## Pack layout and load order
 
@@ -38,7 +48,10 @@ A bootstrapped pack has this layout:
 
 ```text
 <service>/
-  SKILL.md
+  .agents/
+    skills/
+      munray-service-pack/
+        SKILL.md
   src/
     init.lua
     resource.lua
@@ -60,14 +73,19 @@ service name in sync across directory name, root table, and schema `service`.
 
 1. Read this file and the generated `src/init.lua`, `src/resource.lua`, test, and
    example. Replace every `<...>` placeholder and remove `NOT_IMPLEMENTED`.
-2. Run `munray sys list --format markdown`. Select the smallest suitable raw
-   transport primitive; do not shell out or use host APIs as a substitute.
-3. Define a small read-only public operation first, including input validation,
+2. Investigate an existing official or installed CLI for the service, including
+   whether it can proxy API requests, handle authentication, or mint temporary
+   auth tokens. If the investigation does not find a usable CLI or token flow,
+   ask the user before choosing a raw API implementation.
+3. Run `munray sys list --format markdown`. Prefer the smallest suitable
+   `sys.cli.*` primitive for a usable CLI; choose an HTTP or GraphQL primitive
+   only as a last resort. Do not shell out or use host APIs as a substitute.
+4. Define a small read-only public operation first, including input validation,
    a public error translation policy, schema metadata, a capability test, and a
    runnable example.
-4. Run `munray validate --svc-dir <services-dir>` and
+5. Run `munray validate --svc-dir <services-dir>` and
    `munray test --svc-dir <services-dir>` after each coherent change.
-5. Add mutations only after the read path is correct. Mark each mutation
+6. Add mutations only after the read path is correct. Mark each mutation
    `guarded = true` in its function schema; do not implement Lua-side permission
    checks and do not derive mutation policy from an HTTP method or CLI verb.
 
@@ -165,13 +183,15 @@ background threads.
 
 ## Transports, credentials, and binary data
 
-Choose the implementation primitive from `munray sys list --format markdown`:
+After completing the required CLI investigation, choose the implementation
+primitive from `munray sys list --format markdown`:
 
 - **CLI:** add every executable to `<service>.__allowed_cli_commands`; use the
   structured argument array accepted by `sys.cli.*`; never use `os.execute`,
   `io.popen`, or a shell string. Prefer JSON output when available.
-- **HTTP/GraphQL:** use `sys.http.*` or `sys.graphql.*`; preserve structured
-  decoded responses and normalize them at the wrapper boundary.
+- **HTTP/GraphQL:** use `sys.http.*` or `sys.graphql.*` only when no suitable
+  CLI backend, CLI API proxy, or CLI temporary-token flow is available; preserve
+  structured decoded responses and normalize them at the wrapper boundary.
 - **Secrets and auth:** create opaque references with `sys.secrets.*`, then
   construct auth with `sys.auth.*`, exactly as documented by the reference
   output. Pass the reference only through transport options. Never read an
@@ -214,6 +234,9 @@ Verify all of the following:
 - return contracts match actual behavior;
 - list operations are lazy iterators;
 - secrets and raw transport diagnostics cannot reach public output;
+- CLI options, including API-proxy and temporary-token support, were
+  independently investigated; the user was asked if that investigation was
+  inconclusive before a raw API was selected;
 - CLI commands are allowlisted and command arguments are structured;
 - examples are runnable and tests are offline by default;
 - `ctx_init()`, `schema("<namespace>")`, and `examples("<target>")` expose

@@ -97,10 +97,15 @@ enum SvcCommand {
     /// Create a safe, schema-valid service-pack skeleton.
     Bootstrap {
         /// Lua namespace and directory name (lowercase letters, digits, and underscores).
-        name: String,
+        #[arg(required_unless_present = "update")]
+        name: Option<String>,
         /// Replace files in an existing service directory.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "update")]
         force: bool,
+        /// Replace the generated Munray service-pack skill, without changing pack code.
+        /// Without a service name, update every service pack in the service directory.
+        #[arg(long)]
+        update: bool,
     },
     /// List installed service packs.
     List,
@@ -134,8 +139,21 @@ async fn run() -> Result<()> {
     }
     if let Some(Command::Svc { command }) = &cli.command {
         match command {
-            SvcCommand::Bootstrap { name, force } => {
-                bootstrap_service(cli.svc_dir.as_deref(), name, *force)?;
+            SvcCommand::Bootstrap {
+                name,
+                force,
+                update,
+            } => {
+                if *update {
+                    update_bootstrap_skill(cli.svc_dir.as_deref(), name.as_deref())?;
+                } else {
+                    bootstrap_service(
+                        cli.svc_dir.as_deref(),
+                        name.as_deref()
+                            .expect("clap requires a name without --update"),
+                        *force,
+                    )?;
+                }
             }
             SvcCommand::List => list_services(cli.svc_dir.as_deref())?,
             SvcCommand::Uninstall { name, force } => {
@@ -223,7 +241,10 @@ fn bootstrap_service(service_dir: Option<&Path>, name: &str, force: bool) -> Res
         ("src/resource.lua", BOOTSTRAP_RESOURCE),
         ("tests/capabilities_test.lua", BOOTSTRAP_CAPABILITIES_TEST),
         (&format!("examples/{name}.lua"), BOOTSTRAP_EXAMPLE),
-        ("SKILL.md", BOOTSTRAP_SKILL),
+        (
+            ".agents/skills/munray-service-pack/SKILL.md",
+            BOOTSTRAP_SKILL,
+        ),
     ];
     for (relative, template) in files {
         let path = pack_dir.join(relative);
@@ -245,6 +266,52 @@ fn bootstrap_service(service_dir: Option<&Path>, name: &str, force: bool) -> Res
         COMMAND_NAME,
         service_dir.display()
     );
+    Ok(())
+}
+
+fn update_bootstrap_skill(service_dir: Option<&Path>, name: Option<&str>) -> Result<()> {
+    let service_dir = require_service_dir(service_dir.map(Path::to_path_buf))?;
+    let pack_dirs = if let Some(name) = name {
+        if !is_service_name(name) {
+            bail!(
+                "invalid service name {name:?}: use lowercase ASCII letters, digits, and underscores; the first character must be a letter"
+            );
+        }
+        vec![service_dir.join(name)]
+    } else {
+        if !service_dir.exists() {
+            println!("No service packs found in {}", service_dir.display());
+            return Ok(());
+        }
+        if !service_dir.is_dir() {
+            bail!("service path {} is not a directory", service_dir.display());
+        }
+        let mut packs = fs::read_dir(&service_dir)?
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                !entry.file_name().to_string_lossy().starts_with('.')
+                    && entry.file_type().is_ok_and(|kind| kind.is_dir())
+                    && entry.path().join("src").is_dir()
+            })
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>();
+        packs.sort();
+        packs
+    };
+
+    if pack_dirs.is_empty() {
+        println!("No service packs found in {}", service_dir.display());
+        return Ok(());
+    }
+    for pack_dir in pack_dirs {
+        if !pack_dir.is_dir() || !pack_dir.join("src").is_dir() {
+            bail!("service pack {} does not exist", pack_dir.display());
+        }
+        let path = pack_dir.join(".agents/skills/munray-service-pack/SKILL.md");
+        fs::create_dir_all(path.parent().expect("skill path has a parent"))?;
+        fs::write(&path, BOOTSTRAP_SKILL)?;
+        println!("Updated {}", path.display());
+    }
     Ok(())
 }
 
