@@ -172,7 +172,10 @@ arguments, stdout, stderr, exit codes, authorization headers, or credentials.
 ## Lists and asynchronous work
 
 List functions must return generic-for-compatible lazy iterators. Do not
-materialize a large list in the wrapper. Consumers use:
+materialize a large list in the wrapper. Treat every upstream collection
+endpoint as potentially paginated: never rely on the upstream default page size
+or return only its first page. Always implement a lazy iterator that fetches
+subsequent pages on demand. Consumers use:
 
 ```lua
 local items, err = helpers.collect(iterator, { limit = 100 })
