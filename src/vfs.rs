@@ -44,7 +44,7 @@ pub(crate) fn register(
                 let Some(bytes) = blobs.get(&reference) else {
                     return lua_error(lua, "VFS_ERROR", "blob not found".into(), false);
                 };
-                let resolved = match resolve(blob_root.path(), &path) {
+                let (resolved, path) = match resolve(blob_root.path(), &path) {
                     Ok(path) => path,
                     Err(error) => return lua_error(lua, "VFS_ERROR", error, false),
                 };
@@ -95,7 +95,7 @@ pub(crate) fn register(
     vfs.set(
         "mkdirp",
         lua.create_function(move |lua, path: String| {
-            let path = match resolve(vfs_root.path(), &path) {
+            let (path, _) = match resolve(vfs_root.path(), &path) {
                 Ok(path) => path,
                 Err(error) => return lua_error(lua, "VFS_ERROR", error, false),
             };
@@ -110,7 +110,7 @@ pub(crate) fn register(
     vfs.set(
         "remove",
         lua.create_function(move |lua, path: String| {
-            let resolved = match resolve(vfs_root.path(), &path) {
+            let (resolved, _) = match resolve(vfs_root.path(), &path) {
                 Ok(path) => path,
                 Err(error) => return lua_error(lua, "VFS_ERROR", error, false),
             };
@@ -134,7 +134,7 @@ pub(crate) fn register(
         "write_text",
         lua.create_function(
             move |lua, (path, text, opts): (String, String, Option<Table>)| {
-                let resolved = match resolve(vfs_root.path(), &path) {
+                let (resolved, path) = match resolve(vfs_root.path(), &path) {
                     Ok(path) => path,
                     Err(error) => return lua_error(lua, "VFS_ERROR", error, false),
                 };
@@ -174,7 +174,7 @@ pub(crate) fn register(
     vfs.set(
         "read_text",
         lua.create_function(move |lua, (path, opts): (String, Option<Table>)| {
-            let resolved = match resolve(vfs_root.path(), &path) {
+            let (resolved, _) = match resolve(vfs_root.path(), &path) {
                 Ok(path) => path,
                 Err(error) => return lua_error(lua, "VFS_ERROR", error, false),
             };
@@ -208,7 +208,7 @@ pub(crate) fn register(
     vfs.set(
         "stat",
         lua.create_function(move |lua, path: String| {
-            let resolved = match resolve(vfs_root.path(), &path) {
+            let (resolved, path) = match resolve(vfs_root.path(), &path) {
                 Ok(path) => path,
                 Err(error) => return lua_error(lua, "VFS_ERROR", error, false),
             };
@@ -228,7 +228,7 @@ pub(crate) fn register(
     vfs.set(
         "list",
         lua.create_function(move |lua, (path, opts): (String, Option<Table>)| {
-            let resolved = match resolve(vfs_root.path(), &path) {
+            let (resolved, _) = match resolve(vfs_root.path(), &path) {
                 Ok(path) => path,
                 Err(error) => return lua_error(lua, "VFS_ERROR", error, false),
             };
@@ -267,7 +267,7 @@ pub(crate) fn register(
         let mut files = Vec::new();
         for (index, path) in paths.sequence_values::<String>().enumerate() {
             let path = path?;
-            let source = match resolve(vfs_root.path(), &path) { Ok(path) => path, Err(error) => return lua_error(lua, "VFS_ERROR", error, false) };
+            let (source, path) = match resolve(vfs_root.path(), &path) { Ok(path) => path, Err(error) => return lua_error(lua, "VFS_ERROR", error, false) };
             if !source.is_file() { return lua_error(lua, "VFS_ERROR", format!("not a file: {path}"), false); }
             let name = source.file_name().and_then(|name| name.to_str()).unwrap_or("file");
             let target = bundle.path().join(format!("{}-{}", index + 1, name));
@@ -280,7 +280,13 @@ pub(crate) fn register(
     Ok(())
 }
 
-fn resolve(root: &Path, relative: &str) -> Result<PathBuf, String> {
+/// Treats leading slashes as VFS-root markers rather than host absolute paths.
+fn normalize_path(path: &str) -> &str {
+    path.trim_start_matches('/')
+}
+
+fn resolve<'a>(root: &Path, path: &'a str) -> Result<(PathBuf, &'a str), String> {
+    let relative = normalize_path(path);
     if relative.is_empty() {
         return Err("VFS path must not be empty".into());
     }
@@ -301,7 +307,7 @@ fn resolve(root: &Path, relative: &str) -> Result<PathBuf, String> {
     {
         return Err(format!("invalid characters in VFS path: {relative}"));
     }
-    Ok(root.join(path))
+    Ok((root.join(path), relative))
 }
 
 const ZIP_MAX_ENTRIES: usize = 1_000;
@@ -340,10 +346,10 @@ fn zip_to_text(
     vfs_path: &str,
     opts: Option<Table>,
 ) -> Result<serde_json::Value, String> {
+    let (archive_path, vfs_path) = resolve(root, vfs_path)?;
     if !vfs_path.to_ascii_lowercase().ends_with(".zip") {
         return Err("unsupported to_text format".into());
     }
-    let archive_path = resolve(root, vfs_path)?;
     let max_files = opts
         .as_ref()
         .and_then(|opts| opts.get::<usize>("max_files").ok())
@@ -369,7 +375,7 @@ fn zip_to_text(
     let extract_dir = opts
         .and_then(|opts| opts.get::<String>("extract_dir").ok())
         .unwrap_or(default_dir);
-    resolve(root, &extract_dir)?;
+    let (_, extract_dir) = resolve(root, &extract_dir)?;
 
     let file =
         fs::File::open(archive_path).map_err(|error| format!("failed to open zip: {error}"))?;
@@ -441,7 +447,7 @@ fn zip_to_text(
             .read_to_end(&mut bytes)
             .map_err(|error| format!("failed to extract zip entry {name:?}: {error}"))?;
         let entry_path = format!("{extract_dir}/{name}");
-        let destination = resolve(root, &entry_path)?;
+        let (destination, _) = resolve(root, &entry_path)?;
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }

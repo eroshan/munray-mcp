@@ -350,7 +350,7 @@ The bounded command registry is pruned when a runtime drops; stale weak-allowlis
 
 ### 11.6 VFS and blobs
 
-Each runtime owns a temporary VFS root. VFS paths must be non-empty, relative, free of parent/root/prefix components, and limited to ASCII alphanumerics plus `.`, `_`, `/`, and `-`.
+Each runtime owns a temporary VFS root. VFS paths must be non-empty and free of parent/root/prefix components after leading `/` characters are discarded; therefore `/logs/job.txt` is equivalent to `logs/job.txt`. They are limited to ASCII alphanumerics plus `.`, `_`, `/`, and `-`.
 
 The VFS provides directory creation/removal, text/blob writes, text reads, metadata, recursive/nonrecursive listing, ZIP extraction/previews, and exposure bundles. Directory, removal, and text-write mutations (`mkdirp`, `ensure_parent`, `remove`, and `write_text`) and `vfs.expose` are guarded operations; reads and inspection remain read-only.
 

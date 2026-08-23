@@ -391,7 +391,7 @@ The core also exposes **opaque blob handles** for binary data capture. Blob byte
 
 ### 6.0.2 Virtual filesystem (VFS)
 
-VFS is scratch-only storage backed by OS temp dir, scoped **per Lua runtime** (for MCP this typically means per live session). Raw VFS primitives are internal-only like the rest of `sys.*`; guarded policy still comes from the enclosing schema-backed public wrapper.
+VFS is scratch-only storage backed by OS temp dir, scoped **per Lua runtime** (for MCP this typically means per live session). Paths are VFS-relative; leading `/` characters are ignored, so `/logs/job.txt` and `logs/job.txt` refer to the same file. Raw VFS primitives are internal-only like the rest of `sys.*`; guarded policy still comes from the enclosing schema-backed public wrapper.
 
 Raw primitives:
 
