@@ -12,11 +12,12 @@ fn help_lists_supported_commands() {
         .success()
         .stdout(predicate::str::contains("mcp"))
         .stdout(predicate::str::contains("run"))
-        .stdout(predicate::str::contains("validate"))
         .stdout(predicate::str::contains("sys"))
         .stdout(predicate::str::contains("svc"))
         .stdout(predicate::str::contains("help"))
-        .stdout(predicate::str::contains("test"))
+        .stdout(predicate::str::contains("stats"))
+        .stdout(predicate::str::contains("validate").not())
+        .stdout(predicate::str::contains("test").not())
         .stdout(predicate::str::contains("stats"));
 }
 
@@ -35,6 +36,8 @@ fn sys_and_svc_expose_their_nested_subcommands() {
         .success()
         .stdout(predicate::str::contains("bootstrap"))
         .stdout(predicate::str::contains("list"))
+        .stdout(predicate::str::contains("test"))
+        .stdout(predicate::str::contains("validate"))
         .stdout(predicate::str::contains("uninstall"));
 }
 
@@ -67,15 +70,30 @@ fn bootstrap_service_creates_a_valid_tested_starter_pack() {
         fs::read_to_string(pack.join(".agents/skills/munray-service-pack/SKILL.md")).unwrap();
     assert!(skill.contains("munray sys list --format markdown"));
 
+    // A named command must not load or validate unrelated packs.
+    fs::create_dir_all(services.path().join("broken_service/src")).unwrap();
+    fs::write(
+        services.path().join("broken_service/src/init.lua"),
+        "function (",
+    )
+    .unwrap();
+
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .args(["--svc-dir", service_dir, "validate"])
+        .args([
+            "--svc-dir",
+            service_dir,
+            "svc",
+            "validate",
+            "example_service",
+        ])
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("example_service"));
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
         .env("MUNRAY_RUN_GUARDED", "0")
-        .args(["--svc-dir", service_dir, "test"])
+        .args(["--svc-dir", service_dir, "svc", "test", "example_service"])
         .assert()
         .success()
         .stdout(predicate::str::contains("PASS"))

@@ -83,11 +83,11 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 | --- | --- |
 | default / `run [file]` | Execute stdin or a file in a new runtime, in guarded mode. There is no interactive REPL. |
 | `mcp` | Serve MCP over stdin/stdout and, on Unix, start the local ingest socket. |
-| `validate` | Constructs a temporary runtime, forces schema discovery and validation, and reports the service-pack directories actually loaded. Nested `init.lua` files are reported as modules, not packs. |
+| `svc validate [<name>]` | Constructs a temporary runtime, forces schema discovery and validation, and reports the service-pack directories actually loaded. With a name, loads and validates only that pack. Nested `init.lua` files are reported as modules, not packs. |
 | `svc bootstrap <name>` | Create the schema-valid service-pack skeleton and self-contained `.agents/skills/munray-service-pack/SKILL.md` from compiled assets in the configured service directory. Refuses to overwrite an existing pack unless `--force` is supplied. `svc bootstrap [<name>] --update` replaces only the generated skill for one pack, or for every pack when the name is omitted. |
 | `svc list` | List service-pack directories with a `src` directory in the configured service directory. |
 | `svc uninstall <name> --force` | Remove a service-pack directory after explicit confirmation. |
-| `test` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. Generated `integraion_guarded_tests.lua` files run in guarded mode only when `MUNRAY_RUN_GUARDED=1`; otherwise their skip marker is reported as `SKIPPED`. |
+| `svc test [<name>]` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. With a name, runs only that pack's tests and loads only that pack. Generated `integraion_guarded_tests.lua` files run in guarded mode only when `MUNRAY_RUN_GUARDED=1`; otherwise their skip marker is reported as `SKIPPED`. |
 | `ingest` | Send UTF-8 stdin to an already-created MCP session through its Unix socket. |
 | `sys list` | Construct a runtime, reflect registered `sys.*` functions, enrich them with core metadata, and render the catalog. Indented text is the default; `--format markdown` and `--format json` provide alternate representations. |
 | `stats` | Combine available schema paths with metrics found in the durable store. |
@@ -171,7 +171,7 @@ Service source and persisted snippets load before restrictions are applied. Wrap
 
 ## 7. Service-pack integration
 
-The service-pack layout, loading contract, schema metadata, examples, and public raw-API contract are maintained in [services/SERVICE-DESIGN.mkd](services/SERVICE-DESIGN.mkd). Packs are loaded during runtime construction; a missing service directory leaves only core APIs available. `validate` builds a temporary runtime and forces capability discovery, so invalid pack metadata fails validation.
+The service-pack layout, loading contract, schema metadata, examples, and public raw-API contract are maintained in [services/SERVICE-DESIGN.mkd](services/SERVICE-DESIGN.mkd). Packs are loaded during runtime construction; a missing service directory leaves only core APIs available. `svc validate` builds a temporary runtime and forces capability discovery, so invalid pack metadata fails validation.
 
 The loader records accepted pack directories and nested `init.lua` modules for `validate` reporting. MCP initialization appends non-empty `__intro` strings from successfully loaded packs under **Available service integrations**. Dynamic snippet changes invalidate capability discovery, so the next `ctx_init()`, `schema()`, or `examples()` observes the current snippet functions.
 

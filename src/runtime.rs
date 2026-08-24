@@ -86,7 +86,7 @@ impl Drop for LuaRuntime {
 
 impl LuaRuntime {
     pub fn new(service_dir: Option<&Path>) -> Result<Self> {
-        Self::build(service_dir, false, None, true)
+        Self::build(service_dir, None, false, None, true)
     }
 
     /// Return the schema map produced by the trusted capabilities discovery.
@@ -136,25 +136,36 @@ impl LuaRuntime {
     }
 
     pub fn new_with_options(service_dir: Option<&Path>, test_runtime: bool) -> Result<Self> {
-        Self::build(service_dir, test_runtime, None, true)
+        Self::build(service_dir, None, test_runtime, None, true)
+    }
+
+    /// Construct a test runtime that loads only one pack from `service_dir`.
+    pub fn new_with_service_for_tests(service_dir: &Path, service_name: &str) -> Result<Self> {
+        Self::build(Some(service_dir), Some(service_name), true, None, true)
+    }
+
+    /// Construct a runtime that loads only one pack from `service_dir`.
+    pub fn new_for_service(service_dir: &Path, service_name: &str) -> Result<Self> {
+        Self::build(Some(service_dir), Some(service_name), false, None, true)
     }
 
     /// Construct the restricted environment used for generated session code.
     /// This is public for integration tests and embedders; MCP uses `new_mcp`.
     pub fn new_session(service_dir: Option<&Path>) -> Result<Self> {
-        Self::build(service_dir, false, None, false)
+        Self::build(service_dir, None, false, None, false)
     }
 
     pub fn new_persistent(service_dir: Option<&Path>, store_path: &Path) -> Result<Self> {
-        Self::build(service_dir, false, Some(store_path), true)
+        Self::build(service_dir, None, false, Some(store_path), true)
     }
 
     pub(crate) fn new_mcp(service_dir: Option<&Path>, store_path: Option<&Path>) -> Result<Self> {
-        Self::build(service_dir, false, store_path, false)
+        Self::build(service_dir, None, false, store_path, false)
     }
 
     fn build(
         service_dir: Option<&Path>,
+        selected_service: Option<&str>,
         test_runtime: bool,
         store_path: Option<&Path>,
         allow_direct_raw: bool,
@@ -201,7 +212,8 @@ impl LuaRuntime {
         };
         runtime.install_core(vfs, exposures, blobs, ingest, store)?;
         if let Some(path) = service_dir {
-            runtime.loaded_services = crate::services::load(&runtime.lua, path)?;
+            runtime.loaded_services =
+                crate::services::load_named(&runtime.lua, path, selected_service)?;
             runtime.discover_allowed_cli()?;
         }
         crate::storage::restore_lua_snippets(&runtime.lua, &runtime.store)?;

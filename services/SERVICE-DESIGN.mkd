@@ -281,7 +281,7 @@ Notes:
 Example style guidance:
 
 - Keep examples focused and compact; include only the minimum setup needed to understand the call.
-- Examples are documentation loaded by `examples(...)`; they are not executed automatically by `munray test` unless a test explicitly loads and runs them.
+- Examples are documentation loaded by `examples(...)`; they are not executed automatically by `munray svc test` unless a test explicitly loads and runs them.
 - Do not add read-only fallback branches, `run_*` gates, or other test-phase protections unless the example genuinely needs them.
 - For guarded APIs, it is fine for the example to show the direct guarded call when that is the clearest usage.
 
@@ -307,7 +307,7 @@ Non-blocking warnings:
 
 The implementation is Rust; `sys.*` is available only while trusted pack code is loaded and through schema-backed public wrappers. It is not available to MCP session scripts.
 
-For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `sys.*` calls are also allowed in local CLI execution and `munray test` for debugging and service-pack tests.
+For completeness, the core currently exposes these **raw primitives** to the Lua runtime. They are **internal-only** for production-facing usage and should normally be called only from schema-backed public wrappers (or during preload/bootstrap). Exception: direct `sys.*` calls are also allowed in local CLI execution and `munray svc test` for debugging and service-pack tests.
 
 Use `munray sys list` for the runtime-reflected primitive catalog. Its default indented text output is intended for terminal use; `--format markdown` and `--format json` render the same catalog for documentation and tooling. Reflection is authoritative for whether a primitive is present in the runtime; core metadata supplies signatures and descriptions that opaque Lua functions cannot expose.
 
@@ -595,13 +595,13 @@ Rules:
 Run:
 
 ```bash
-munray validate --svc-dir <path>
+munray --svc-dir <path> svc validate [<service>]
 ```
 
 For command help / flags:
 
 ```bash
-munray help validate
+munray help svc validate
 ```
 
 ### 10.2 Run Pack Tests
@@ -609,13 +609,13 @@ munray help validate
 Run:
 
 ```bash
-munray test --svc-dir <path>
+munray --svc-dir <path> svc test [<service>]
 ```
 
 For command help / flags:
 
 ```bash
-munray help test
+munray help svc test
 ```
 
 Test guidance:
@@ -624,7 +624,7 @@ Test guidance:
 - keep `tests/integration_tests.lua` read-only and enabled by default; cover authentication, API wiring, normalization, pagination, and reads without changing remote state
 - keep mutations in `tests/integraion_guarded_tests.lua`; it runs only when `MUNRAY_RUN_GUARDED=1`, uses deterministic tightly scoped fixtures, and must clean them up
 - when the guarded gate is absent or not `1`, return the standard skip marker so the harness reports `SKIPPED`, not `PASS`
-- `examples/*.lua` files are not executed automatically by `munray test`; add an explicit test only when you intentionally want to validate example content or behavior
+- `examples/*.lua` files are not executed automatically by `munray svc test`; add an explicit test only when you intentionally want to validate example content or behavior
 
 ---
 
@@ -633,8 +633,8 @@ Test guidance:
 1. Run `munray svc bootstrap <service> --svc-dir <SVC_DIR>`.
 2. Replace the generated placeholders and implement one small read-only operation end-to-end.
 3. Configure the generated read-only integration test and add guarded mutation coverage only when a safe fixture is available.
-4. Run `munray validate --svc-dir <SVC_DIR>`.
-5. Run `munray test --svc-dir <SVC_DIR>`.
+4. Run `munray --svc-dir <SVC_DIR> svc validate <service>`.
+5. Run `munray --svc-dir <SVC_DIR> svc test <service>`.
 
 ---
 

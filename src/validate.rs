@@ -24,7 +24,7 @@ impl Issue {
 
 /// Implements the CLI validator.  It intentionally creates no durable store: the
 /// runtime's default store is temporary and is dropped with this function.
-pub fn run(dir: &Path) -> Result<usize> {
+pub fn run(dir: &Path, service_name: Option<&str>) -> Result<usize> {
     println!("Validating services directory: {}", dir.display());
     let external = match fs::metadata(dir) {
         Ok(meta) if meta.is_dir() => Some(dir),
@@ -38,7 +38,11 @@ pub fn run(dir: &Path) -> Result<usize> {
                 .with_context(|| format!("cannot inspect services directory {}", dir.display()));
         }
     };
-    let runtime = LuaRuntime::new(external)?;
+    let runtime = match (external, service_name) {
+        (Some(dir), Some(name)) => LuaRuntime::new_for_service(dir, name)?,
+        (dir, None) => LuaRuntime::new(dir)?,
+        (None, Some(_)) => unreachable!("a named service requires a service directory"),
+    };
     let packs = &runtime.loaded_services().packs;
     let mut warnings = metadata_warnings(&runtime, packs)?;
     let schemas = runtime

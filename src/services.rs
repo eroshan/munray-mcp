@@ -25,6 +25,15 @@ pub struct LoadReport {
 /// `src` directory; `src/init.lua` is its entrypoint, while any nested
 /// `init.lua` remains an ordinary module.
 pub fn load(lua: &Lua, service_dir: &Path) -> Result<LoadReport> {
+    load_named(lua, service_dir, None)
+}
+
+/// Load either all service packs or one named immediate child of `service_dir`.
+pub fn load_named(
+    lua: &Lua,
+    service_dir: &Path,
+    selected_name: Option<&str>,
+) -> Result<LoadReport> {
     if !service_dir.is_dir() {
         return Ok(LoadReport::default());
     }
@@ -37,7 +46,11 @@ pub fn load(lua: &Lua, service_dir: &Path) -> Result<LoadReport> {
             entry.with_context(|| format!("cannot read entry in {}", service_dir.display()))?;
         let name = entry.file_name().to_string_lossy().to_string();
         let path = entry.path();
-        if name.starts_with('.') || !entry.metadata()?.is_dir() || !path.join("src").is_dir() {
+        if name.starts_with('.')
+            || selected_name.is_some_and(|selected| selected != name)
+            || !entry.metadata()?.is_dir()
+            || !path.join("src").is_dir()
+        {
             continue;
         }
         packs.push((name, path));
@@ -134,6 +147,6 @@ fn walk_lua_files(root: &Path, label: &str) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-pub fn validate(service_dir: &Path) -> Result<usize> {
-    crate::validate::run(service_dir)
+pub fn validate(service_dir: &Path, service_name: Option<&str>) -> Result<usize> {
+    crate::validate::run(service_dir, service_name)
 }

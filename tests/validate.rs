@@ -27,7 +27,12 @@ fn validate_discovers_schemas_and_reports_loaded_pack_and_nested_init_module() {
 
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .args(["--svc-dir", services.path().to_str().unwrap(), "validate"])
+        .args([
+            "--svc-dir",
+            services.path().to_str().unwrap(),
+            "svc",
+            "validate",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Loaded service pack directories:"))
@@ -48,7 +53,12 @@ fn validate_rejects_a_pack_without_the_required_root_entrypoint() {
 
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .args(["--svc-dir", services.path().to_str().unwrap(), "validate"])
+        .args([
+            "--svc-dir",
+            services.path().to_str().unwrap(),
+            "svc",
+            "validate",
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("missing required entrypoint"));
@@ -67,7 +77,12 @@ fn validate_rejects_properties_disallowed_by_the_capability_json_schema() {
 
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .args(["--svc-dir", services.path().to_str().unwrap(), "validate"])
+        .args([
+            "--svc-dir",
+            services.path().to_str().unwrap(),
+            "svc",
+            "validate",
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -94,7 +109,12 @@ function broken.bad() end
 
     Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
-        .args(["--svc-dir", services.path().to_str().unwrap(), "validate"])
+        .args([
+            "--svc-dir",
+            services.path().to_str().unwrap(),
+            "svc",
+            "validate",
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("Invalid __schema for broken"));

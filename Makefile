@@ -23,7 +23,7 @@ test:
 	cargo test --offline
 
 test-services: build
-	$(BIN) --svc-dir $(SERVICE_DIR) test
+	$(BIN) --svc-dir $(SERVICE_DIR) svc test
 
 test-ignored: build
 	cargo test --offline -- --ignored --test-threads=1
@@ -31,7 +31,7 @@ test-ignored: build
 test-all: fmt lint test test-services
 
 validate: build
-	$(BIN) --svc-dir $(SERVICE_DIR) validate
+	$(BIN) --svc-dir $(SERVICE_DIR) svc validate
 
 run: build
 	$(BIN)

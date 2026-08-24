@@ -85,8 +85,8 @@ service name in sync across directory name, root table, and schema `service`.
 4. Define a small read-only public operation first, including input validation,
    a public error translation policy, schema metadata, a capability test, and a
    runnable example.
-5. Run `munray validate --svc-dir <services-dir>` and
-   `munray test --svc-dir <services-dir>` after each coherent change.
+5. Run `munray --svc-dir <services-dir> svc validate <service>` and
+   `munray --svc-dir <services-dir> svc test <service>` after each coherent change.
 6. Add mutations only after the read path is correct. Mark each mutation
    `guarded = true` in its function schema; do not implement Lua-side permission
    checks and do not derive mutation policy from an HTTP method or CLI verb.
@@ -238,8 +238,8 @@ deadline.
 Before considering the pack complete:
 
 ```sh
-munray validate --svc-dir <services-dir>
-munray test --svc-dir <services-dir>
+munray --svc-dir <services-dir> svc validate <service>
+munray --svc-dir <services-dir> svc test <service>
 ```
 
 Verify all of the following:

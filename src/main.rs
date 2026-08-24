@@ -1,7 +1,8 @@
 use std::{
     fs,
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 use anyhow::{Result, bail};
@@ -42,8 +43,6 @@ enum Command {
     Run { file: Option<PathBuf> },
     /// Serve MCP JSON-RPC over stdin/stdout.
     Mcp,
-    /// Validate that all service-pack Lua modules load.
-    Validate,
     /// Push UTF-8 stdin into an existing MCP session.
     Ingest {
         #[arg(long)]
@@ -53,8 +52,6 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Run Lua tests found under service-pack tests directories.
-    Test,
     /// Report wrapped public function availability and usage metrics.
     Stats {
         #[arg(long)]
@@ -109,6 +106,16 @@ enum SvcCommand {
     },
     /// List installed service packs.
     List,
+    /// Validate all service packs, or one named pack.
+    Validate {
+        /// Optional service-pack name to validate.
+        name: Option<String>,
+    },
+    /// Run Lua tests for all service packs, or one named pack.
+    Test {
+        /// Optional service-pack name to test.
+        name: Option<String>,
+    },
     /// Remove an installed service pack.
     Uninstall {
         /// Lua namespace and directory name of the service pack to remove.
@@ -130,13 +137,6 @@ async fn main() {
 async fn run() -> Result<()> {
     let mut cli = Cli::parse();
     cli.svc_dir = resolve_service_dir(cli.svc_dir);
-    // Validation has no persistence requirement: its runtime uses a temporary
-    // store, and base-only validation must work without HOME.
-    if matches!(cli.command, Some(Command::Validate)) {
-        let dir = cli.svc_dir.unwrap_or_else(|| PathBuf::from("services"));
-        services::validate(&dir)?;
-        return Ok(());
-    }
     if let Some(Command::Svc { command }) = &cli.command {
         match command {
             SvcCommand::Bootstrap {
@@ -156,6 +156,14 @@ async fn run() -> Result<()> {
                 }
             }
             SvcCommand::List => list_services(cli.svc_dir.as_deref())?,
+            SvcCommand::Validate { name } => {
+                let dir = cli
+                    .svc_dir
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from("services"));
+                validate_services(&dir, name.as_deref())?;
+            }
+            SvcCommand::Test { name } => run_service_tests(cli.svc_dir.clone(), name.as_deref())?,
             SvcCommand::Uninstall { name, force } => {
                 uninstall_service(cli.svc_dir.as_deref(), name, *force)?;
             }
@@ -192,9 +200,7 @@ async fn run() -> Result<()> {
             session,
             json,
         }) => run_ingest(&server, &session, json),
-        Some(Command::Validate) => unreachable!("handled before store resolution"),
         Some(Command::Svc { .. }) => unreachable!("handled before store resolution"),
-        Some(Command::Test) => run_service_tests(cli.svc_dir),
         Some(Command::Sys {
             command: SysCommand::List { format, width },
         }) => {
@@ -552,10 +558,37 @@ fn is_skipped_test(result: &serde_json::Value) -> bool {
         == Some("SKIPPED")
 }
 
-fn run_service_tests(service_dir: Option<PathBuf>) -> Result<()> {
+fn validate_services(dir: &Path, service_name: Option<&str>) -> Result<()> {
+    validate_service_name(dir, service_name)?;
+    services::validate(dir, service_name)?;
+    Ok(())
+}
+
+fn validate_service_name(service_dir: &Path, service_name: Option<&str>) -> Result<()> {
+    let Some(name) = service_name else {
+        return Ok(());
+    };
+    if !is_service_name(name) {
+        bail!(
+            "invalid service name {name:?}: use lowercase ASCII letters, digits, and underscores; the first character must be a letter"
+        );
+    }
+    let pack = service_dir.join(name);
+    if !pack.is_dir() || !pack.join("src").is_dir() {
+        bail!(
+            "service pack {name:?} does not exist in {}",
+            service_dir.display()
+        );
+    }
+    Ok(())
+}
+
+fn run_service_tests(service_dir: Option<PathBuf>, service_name: Option<&str>) -> Result<()> {
     let dir = require_service_dir(service_dir)?;
+    validate_service_name(&dir, service_name)?;
+    let tests_dir = service_name.map_or_else(|| dir.clone(), |name| dir.join(name));
     let mut failures = 0;
-    for entry in walkdir::WalkDir::new(&dir)
+    for entry in walkdir::WalkDir::new(&tests_dir)
         .follow_links(true)
         .into_iter()
         .filter_map(Result::ok)
@@ -568,6 +601,9 @@ fn run_service_tests(service_dir: Option<PathBuf>) -> Result<()> {
             continue;
         }
         let code = std::fs::read_to_string(path)?;
+        println!("RUNNING {}", path.display());
+        std::io::stdout().flush()?;
+        let started = Instant::now();
         let guarded_integration = path
             .file_name()
             .is_some_and(|name| name == "integraion_guarded_tests.lua");
@@ -578,7 +614,10 @@ fn run_service_tests(service_dir: Option<PathBuf>) -> Result<()> {
         } else {
             ExecutionMode::ReadOnly
         };
-        let runtime = LuaRuntime::new_with_options(Some(&dir), true)?;
+        let runtime = match service_name {
+            Some(name) => LuaRuntime::new_with_service_for_tests(&dir, name)?,
+            None => LuaRuntime::new_with_options(Some(&dir), true)?,
+        };
         match runtime.execute(&code, mode, &path.to_string_lossy()) {
             Ok(execution) if is_skipped_test(&execution.result) => {
                 let reason = execution
@@ -586,12 +625,24 @@ fn run_service_tests(service_dir: Option<PathBuf>) -> Result<()> {
                     .get("reason")
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("test requested skip");
-                println!("SKIPPED {}: {reason}", path.display());
+                println!(
+                    "SKIPPED {} ({:.1}s): {reason}",
+                    path.display(),
+                    started.elapsed().as_secs_f64()
+                );
             }
-            Ok(_) => println!("PASS {}", path.display()),
+            Ok(_) => println!(
+                "PASS {} ({:.1}s)",
+                path.display(),
+                started.elapsed().as_secs_f64()
+            ),
             Err(error) => {
                 failures += 1;
-                eprintln!("FAIL {}: {error:#}", path.display());
+                eprintln!(
+                    "FAIL {} ({:.1}s): {error:#}",
+                    path.display(),
+                    started.elapsed().as_secs_f64()
+                );
             }
         }
     }
