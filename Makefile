@@ -1,11 +1,24 @@
 PACKAGE_NAME := $(shell awk -F'"' '/^name = / { print $$2; exit }' Cargo.toml)
 BIN := target/release/$(PACKAGE_NAME)
+DEBUG_BIN := target/debug/$(PACKAGE_NAME)
 INSTALL_BIN_DIR ?= $(HOME)/.local/bin
 
-.PHONY: build check fmt lint test test-all test-services test-ignored validate clean   
+.PHONY: build build-debug check fmt lint test test-all test-services test-ignored validate install instal-debug clean
 
 build:
 	cargo build --release --offline
+
+build-debug:
+	cargo build --offline
+
+$(INSTALL_BIN_DIR):
+	mkdir -p "$@"
+
+install: build $(INSTALL_BIN_DIR)
+	install -m 755 "$(BIN)" "$(INSTALL_BIN_DIR)/$(PACKAGE_NAME)"
+
+instal-debug: build-debug $(INSTALL_BIN_DIR)
+	install -m 755 "$(DEBUG_BIN)" "$(INSTALL_BIN_DIR)/$(PACKAGE_NAME)"
 
 check:
 	cargo check --offline --all-targets
