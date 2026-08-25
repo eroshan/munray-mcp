@@ -85,6 +85,29 @@ The binary is installed to `~/.local/bin/munray` by default. Development
 service links are installed under `~/.local/share/munray/services`. Override
 `INSTALL_BIN_DIR` or `MUNRAY_MCP_HOME` when invoking Make if desired.
 
+### Release binaries
+
+Every `v*` tag publishes installable archives on the GitHub release. Download
+the archive for the current version and platform:
+
+| Platform | Archive suffix |
+| --- | --- |
+| Linux x86_64 | `linux-amd64.tar.gz` |
+| Linux ARM64 | `linux-arm64.tar.gz` |
+| macOS x86_64 | `darwin-amd64.tar.gz` |
+| macOS ARM64 | `darwin-arm64.tar.gz` |
+| Windows x86_64 | `windows-amd64.zip` |
+
+On Linux or macOS, extract the archive and put `munray` somewhere on `PATH`:
+
+```sh
+tar -xzf munray-<version>-<platform>.tar.gz
+install -m 755 munray ~/.local/bin/munray
+```
+
+On Windows, extract the ZIP and add the directory containing `munray.exe` to
+`PATH`. Each release includes `SHA256SUMS.txt` for verifying downloads.
+
 At runtime, service-directory precedence is `--svc-dir`, then
 `MUNRAY_MCP_SVC_DIR`, then `$MUNRAY_MCP_HOME/services`. If `MUNRAY_MCP_HOME` is unset,
 it defaults to `$HOME/.local/share/munray`.
