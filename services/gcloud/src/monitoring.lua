@@ -787,7 +787,7 @@ local series, err = helpers.collect(iter, { limit = 3 })
 if err then error(err.message or tostring(err)) end
 if #series == 0 then return { count = 0, note = "no matching time series" } end
 
-local point = (((((series[1] or {})[1] or {}).points or {})[1]))
+local point = ((((series[1] or {}).points or {})[1]))
 local value, kind = point_number(point)
 return { count = #series, first_value = value, value_kind = kind }
 ]],

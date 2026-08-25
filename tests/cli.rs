@@ -35,6 +35,7 @@ fn sys_and_svc_expose_their_nested_subcommands() {
         .assert()
         .success()
         .stdout(predicate::str::contains("bootstrap"))
+        .stdout(predicate::str::contains("install"))
         .stdout(predicate::str::contains("list"))
         .stdout(predicate::str::contains("test"))
         .stdout(predicate::str::contains("validate"))
@@ -193,6 +194,120 @@ fn bootstrap_update_replaces_the_skill_for_one_or_all_service_packs() {
         .unwrap()
         .contains("Munray service-pack development")
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn svc_installs_from_a_repository_url_and_removes_with_aliases() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let services = tempfile::tempdir().unwrap();
+    let tools = tempfile::tempdir().unwrap();
+    let git = tools.path().join("git");
+    fs::write(
+        &git,
+        "#!/bin/sh\n[ \"$1\" = clone ] && [ \"$2\" = -- ] || exit 64\n/bin/mkdir -p \"$4/src\"\nprintf '%s\\n' \"$3\" > \"$4/repository-url\"\n/bin/pwd > \"$4/clone-cwd\"\n",
+    )
+    .unwrap();
+    fs::set_permissions(&git, fs::Permissions::from_mode(0o755)).unwrap();
+    let service_dir = services.path().to_str().unwrap();
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .env("PATH", tools.path())
+        .args([
+            "--svc-dir",
+            service_dir,
+            "svc",
+            "install",
+            "https://github.com/eroshan/munray-github.git",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Installed github"));
+
+    let pack = services.path().join("github");
+    assert!(pack.join("src").is_dir());
+    assert_eq!(
+        fs::read_to_string(pack.join("repository-url")).unwrap(),
+        "https://github.com/eroshan/munray-github.git\n"
+    );
+    assert_eq!(
+        fs::read_to_string(pack.join("clone-cwd")).unwrap().trim(),
+        fs::canonicalize(service_dir).unwrap().to_string_lossy()
+    );
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["--svc-dir", service_dir, "svc", "delete", "github"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("pass --force"));
+    assert!(pack.exists());
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args([
+            "--svc-dir",
+            service_dir,
+            "svc",
+            "remove",
+            "github",
+            "--force",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Removed"));
+    assert!(!pack.exists());
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .env("PATH", tools.path())
+        .args([
+            "--svc-dir",
+            service_dir,
+            "svc",
+            "install",
+            "git@github.com:eroshan/munray-github.git",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Installed github"));
+    assert!(services.path().join("github/src").is_dir());
+
+    let relative_root = tempfile::tempdir().unwrap();
+    fs::create_dir(relative_root.path().join("services")).unwrap();
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .current_dir(relative_root.path())
+        .env("PATH", tools.path())
+        .args([
+            "--svc-dir",
+            "services",
+            "svc",
+            "install",
+            "https://github.com/eroshan/munray-github.git",
+        ])
+        .assert()
+        .success();
+    assert!(relative_root.path().join("services/github/src").is_dir());
+}
+
+#[test]
+fn svc_rejects_non_https_or_ssh_install_urls() {
+    let services = tempfile::tempdir().unwrap();
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args([
+            "--svc-dir",
+            services.path().to_str().unwrap(),
+            "svc",
+            "install",
+            "git://github.com/eroshan/munray-github.git",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("https:// or git@host:path"));
 }
 
 #[test]

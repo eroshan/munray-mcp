@@ -63,7 +63,7 @@ local pubsub_series, pubsub_err = helpers.collect(pubsub_iter, { limit = 5 })
 if pubsub_err then error(pubsub_err.message or tostring(pubsub_err)) end
 
 -- Safe value extraction from either doubleValue or int64Value.
-local first_point = (((((pubsub_series[1] or {})[1] or {}).points) or {})[1])
+local first_point = ((((pubsub_series[1] or {}).points) or {})[1])
 local value, kind = point_number(first_point)
 
 return {

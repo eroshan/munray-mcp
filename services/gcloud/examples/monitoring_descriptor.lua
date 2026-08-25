@@ -12,5 +12,5 @@ if err then error(err.message or tostring(err)) end
 
 return {
 	count = #descriptors,
-	first = descriptors[1] and descriptors[1][1],
+	first = descriptors[1],
 }

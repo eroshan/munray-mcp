@@ -12,14 +12,14 @@ helpers.__schema = {
 			signature = "(iterator, opts)",
 			returns_contract = "core.result",
 			guarded = false,
-			description = "Collect iterator results into an array of tuple rows. Each row contains all values returned by one iterator step; when opts.transform is supplied, its return values are inserted unchanged instead. Options: limit (max rows), max_pages (pagination limit), filter (predicate function), transform (map function)",
+			description = "Collect the primary value yielded by each iterator step. Auxiliary values, including pagination metadata, are not returned. Options: limit (max items), max_pages (pagination limit), filter (predicate function), transform (map function).",
 			params = {
 				{ name = "iterator", type = "Iterator" },
 				{
 					name = "opts",
 					type = "table",
 					optional = true,
-					description = "Options: {limit: number, max_pages: number, filter: function, transform: function}"
+					description = "Options: {limit: number, max_pages: number, filter: function(item, index), transform: function(item, index)}"
 				}
 			},
 			returns_typed = {
@@ -27,60 +27,55 @@ helpers.__schema = {
 				{ name = "err", type = "core.error|nil" }
 			},
 			examples = [[
--- Self-contained iterator helper
+-- The iterator yields an item and auxiliary page metadata.
 local function make_iter(max_items, per_page)
 	local i = 0
 	per_page = per_page or max_items
 	return function()
 		i = i + 1
-		if i > max_items then
-			return nil
-		end
+		if i > max_items then return nil end
 		local page = math.floor((i - 1) / per_page) + 1
 		return { n = i }, { page = page }
 	end
 end
 
--- Basic collection (all items)
+-- collect returns the primary items, not { item, metadata } tuples.
 local all, err = helpers.collect(make_iter(10, 3))
 if err then error(err.message) end
-print("Found", #all, "items")
+print(all[1].n) -- 1
 
--- With limit option (max items)
-local limited, err2 = helpers.collect(make_iter(10, 3), { limit = 5 })
+local evens, err2 = helpers.collect(make_iter(10, 3), {
+	filter = function(item) return (item.n % 2) == 0 end,
+	transform = function(item) return item.n * 10 end,
+})
 if err2 then error(err2.message) end
-print("Limited to", #limited, "items")
+print(table.concat(evens, ", ")) -- 20, 40, ...
 
--- With filter option
-local evens, err3 = helpers.collect(make_iter(10, 3), {
-	filter = function(row)
-		local item = row[1]
-		return (item.n % 2) == 0
-	end
-})
+-- Opt in to every value returned by each iterator step.
+local tuples, err3 = helpers.collect_tuples(make_iter(2, 1))
 if err3 then error(err3.message) end
-print("Even count", #evens)
-
--- With transform option
-local tens, err4 = helpers.collect(make_iter(10, 3), {
-	limit = 4,
-	transform = function(row) return { row[1].n * 10 } end
-})
-if err4 then error(err4.message) end
-local rendered = {}
-for _, row in ipairs(tens) do rendered[#rendered + 1] = row[1] end
-print("Transformed:", table.concat(rendered, ", "))
-
--- With max_pages to limit pagination (requires iterator meta.page)
-local page_limited, err5 = helpers.collect(make_iter(10, 3), { max_pages = 1 })
-if err5 then error(err5.message) end
-print("Max page 1 count", #page_limited)
-
--- NOTE: For simple limiting, helpers.take() is simpler:
-local taken, err6 = helpers.take(make_iter(10, 3), 5)
-if err6 then error(err6.message) end
-print("Taken", #taken)
+print(tuples[1][1].n, tuples[1][2].page) -- 1  1
 ]],
+		},
+		{
+			name = "collect_tuples",
+			signature = "(iterator, opts)",
+			returns_contract = "core.result",
+			guarded = false,
+			description = "Collect all values yielded by each iterator step as packed tuple rows. Use only when auxiliary iterator values are required.",
+			params = {
+				{ name = "iterator", type = "Iterator" },
+				{
+					name = "opts",
+					type = "table",
+					optional = true,
+					description = "Options: {limit: number, max_pages: number, filter: function(tuple, index), transform: function(tuple, index)}"
+				}
+			},
+			returns_typed = {
+				{ name = "result", type = "table" },
+				{ name = "err", type = "core.error|nil" }
+			},
 		},
 		{
 			name = "copy",
@@ -210,7 +205,7 @@ local pipeline = pipeline_row and pipeline_row[1]
 			signature = "(iterator, n)",
 			returns_contract = "core.result",
 			guarded = false,
-			description = "Take N iterator rows and return an array of tuple rows",
+			description = "Take N primary iterator values and return them as an array",
 			params = {
 				{ name = "iterator", type = "Iterator" },
 				{ name = "n", type = "number", description = "Number of items to take" },
@@ -304,7 +299,7 @@ local function pack_tuple(...)
 	return mark_array(table.pack(...))
 end
 
--- Get first tuple from an iterator
+-- Get first tuple from an iterator. Use helpers.collect for primary values.
 -- helpers.first(iterator) -> (tuple, err)
 -- Returns nil if iterator is empty
 function helpers.first(iterator)
@@ -328,7 +323,7 @@ function helpers.first(iterator)
 	return tuple, nil
 end
 
--- Take N items from an iterator
+-- Take N primary iterator values.
 -- helpers.take(iterator, n) -> (items[], err)
 function helpers.take(iterator, n)
 	if type(n) ~= "number" or n < 0 then
@@ -611,19 +606,13 @@ function helpers.get_in(obj, path, default)
 	return current, nil
 end
 
--- Collect iterator results into an array of tuple rows
--- helpers.collect(iterator, opts) -> array
--- Options:
---   limit: maximum number of rows to collect
---   max_pages: maximum number of pages to fetch (if iterator supports pagination metadata)
---   filter: function(item) -> boolean to filter items
---   transform: function(tuple, index) -> transformed_item; transformed items are inserted unchanged (not wrapped as tuple rows)
--- Throws on iterator errors with added context
-function helpers.collect(iterator, opts)
+-- Collect primary iterator values by default. collect_tuples opts in to the
+-- packed multi-return representation used by the original collect helper.
+local function collect_iterator(iterator, opts, preserve_tuples, helper_name)
 	if type(iterator) ~= "function" then
 		return nil, {
 			code = "INVALID_FIELD_VALUE",
-			message = "helpers.collect: iterator must be a function",
+			message = helper_name .. ": iterator must be a function",
 			recoverable = false,
 		}
 	end
@@ -632,7 +621,7 @@ function helpers.collect(iterator, opts)
 	if type(opts) ~= "table" then
 		return nil, {
 			code = "INVALID_FIELD_VALUE",
-			message = "helpers.collect: opts must be a table",
+			message = helper_name .. ": opts must be a table",
 			recoverable = false,
 		}
 	end
@@ -641,16 +630,16 @@ function helpers.collect(iterator, opts)
 	if limit ~= nil and (type(limit) ~= "number" or limit < 0) then
 		return nil, {
 			code = "INVALID_FIELD_VALUE",
-			message = "helpers.collect: opts.limit must be a non-negative number",
+			message = helper_name .. ": opts.limit must be a non-negative number",
 			recoverable = false,
 		}
 	end
 
-	local max_pages = opts.max_pages or 0  -- 0 means no limit
+	local max_pages = opts.max_pages or 0 -- 0 means no limit
 	if type(max_pages) ~= "number" or max_pages < 0 then
 		return nil, {
 			code = "INVALID_FIELD_VALUE",
-			message = "helpers.collect: opts.max_pages must be a non-negative number",
+			message = helper_name .. ": opts.max_pages must be a non-negative number",
 			recoverable = false,
 		}
 	end
@@ -659,7 +648,7 @@ function helpers.collect(iterator, opts)
 	if filter_fn ~= nil and type(filter_fn) ~= "function" then
 		return nil, {
 			code = "INVALID_FIELD_VALUE",
-			message = "helpers.collect: opts.filter must be a function",
+			message = helper_name .. ": opts.filter must be a function",
 			recoverable = false,
 		}
 	end
@@ -668,7 +657,7 @@ function helpers.collect(iterator, opts)
 	if transform_fn ~= nil and type(transform_fn) ~= "function" then
 		return nil, {
 			code = "INVALID_FIELD_VALUE",
-			message = "helpers.collect: opts.transform must be a function",
+			message = helper_name .. ": opts.transform must be a function",
 			recoverable = false,
 		}
 	end
@@ -682,62 +671,53 @@ function helpers.collect(iterator, opts)
 	local seen_count = 0
 	local page_count = 0
 
-	-- Wrap iterator calls in pcall and return structured errors.
 	local function safe_next()
 		local packed = table.pack(pcall(iterator))
-		local status = packed[1]
-		if not status then
-			return nil, wrap_iterator_error("helpers.collect: iterator error: ", packed[2])
+		if not packed[1] then
+			return nil, wrap_iterator_error(helper_name .. ": iterator error: ", packed[2])
 		end
 		return pack_tuple(table.unpack(packed, 2, packed.n)), nil
 	end
 
 	while true do
 		local tuple, err = safe_next()
-		if err then
-			return nil, err
-		end
+		if err then return nil, err end
 
-		-- Iterator exhausted
-		if tuple[1] == nil then
-			break
-		end
+		-- The first *return value* is the item. This does not index into or
+		-- otherwise assume an order for fields in an item table.
+		local item = tuple[1]
+		if item == nil then break end
 		seen_count = seen_count + 1
 
-		-- Track page count if metadata available
 		local meta = tuple[2]
 		if type(meta) == "table" and meta.page then
 			local current_page = meta.page
 			if current_page > page_count then
 				page_count = current_page
-				-- Check max_pages limit (break after completing max_pages)
-				if max_pages > 0 and page_count > max_pages then
-					break
-				end
+				if max_pages > 0 and page_count > max_pages then break end
 			end
 		end
 
-		-- Apply filter if provided
-		if filter_fn and not filter_fn(tuple, seen_count) then
-			goto continue
-		end
+		local value = preserve_tuples and tuple or item
+		if filter_fn and not filter_fn(value, seen_count) then goto continue end
+		if transform_fn then value = transform_fn(value, seen_count) end
 
-		-- Apply transform if provided
-		local final_item = tuple
-		if transform_fn then
-			final_item = transform_fn(tuple, seen_count)
-		end
-
-		table.insert(result, final_item)
+		table.insert(result, value)
 		count = count + 1
-
-		-- Check limit
-		if limit ~= nil and count >= limit then
-			break
-		end
+		if limit ~= nil and count >= limit then break end
 
 		::continue::
 	end
 
 	return result, nil
+end
+
+-- Collect only the primary value yielded by each iterator step.
+function helpers.collect(iterator, opts)
+	return collect_iterator(iterator, opts, false, "helpers.collect")
+end
+
+-- Collect every value yielded by each iterator step as a packed tuple row.
+function helpers.collect_tuples(iterator, opts)
+	return collect_iterator(iterator, opts, true, "helpers.collect_tuples")
 end

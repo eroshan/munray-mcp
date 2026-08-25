@@ -84,9 +84,10 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 | default / `run [file]` | Execute stdin or a file in a new runtime, in guarded mode. There is no interactive REPL. |
 | `mcp` | Serve MCP over stdin/stdout and, on Unix, start the local ingest socket. |
 | `svc validate [<name>]` | Constructs a temporary runtime, forces schema discovery and validation, and reports the service-pack directories actually loaded. With a name, loads and validates only that pack. Nested `init.lua` files are reported as modules, not packs. |
+| `svc install <repository-url>` | Clone an HTTPS or SSH (`git@host:path`) service repository into the configured service directory, using the repository basename (without `.git`) as its directory name. A `<package-name>-` basename prefix is removed, so `munray-github.git` installs as `github`. Git authentication and transport configuration remain delegated to the local Git client. |
 | `svc bootstrap <name>` | Create the schema-valid service-pack skeleton and self-contained `.agents/skills/munray-service-pack/SKILL.md` from compiled assets in the configured service directory. Refuses to overwrite an existing pack unless `--force` is supplied. `svc bootstrap [<name>] --update` replaces only the generated skill for one pack, or for every pack when the name is omitted. |
 | `svc list` | List service-pack directories with a `src` directory in the configured service directory. |
-| `svc uninstall <name> --force` | Remove a service-pack directory after explicit confirmation. |
+| `svc uninstall <name> --force` | Remove a service-pack directory after explicit confirmation. `svc delete` and `svc remove` are aliases. |
 | `svc test [<name>]` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. With a name, runs only that pack's tests and loads only that pack. Generated `integraion_guarded_tests.lua` files run in guarded mode only when `MUNRAY_RUN_GUARDED=1`; otherwise their skip marker is reported as `SKIPPED`. |
 | `ingest` | Send UTF-8 stdin to an already-created MCP session through its Unix socket. |
 | `sys list` | Construct a runtime, reflect registered `sys.*` functions, enrich them with core metadata, and render the catalog. Indented text is the default; `--format markdown` and `--format json` provide alternate representations. |
@@ -295,7 +296,7 @@ The raw CLI and command-secret implementations require exact command-name member
 
 ### 11.1 Public API contract
 
-The complete pack-facing raw and public Lua API contract is maintained in [services/SERVICE-DESIGN.mkd](services/SERVICE-DESIGN.mkd). This document records implementation and operational behavior of those facilities below. `errutil` is intentionally internal and has no schema.
+The complete pack-facing raw and public Lua API contract is maintained in [services/SERVICE-DESIGN.mkd](services/SERVICE-DESIGN.mkd). This document records implementation and operational behavior of those facilities below. `helpers.collect` materializes only each iterator step's primary return value; `helpers.collect_tuples` is the opt-in helper for packed multi-return rows. `errutil` is intentionally internal and has no schema.
 
 ### 11.2 CLI and process capture
 

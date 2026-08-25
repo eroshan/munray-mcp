@@ -58,12 +58,12 @@ end
 local search_items, search_err = helpers.collect(compass.searchComponents("payments", { limit = 2, per_page = 10 }))
 test.assert_eq(search_err, nil, "searchComponents collect should succeed")
 test.assert_eq(#search_items, 2, "searchComponents should yield two items")
-test.assert_eq(search_items[1][1].name, "Payments", "first search item should match")
+test.assert_eq(search_items[1].name, "Payments", "first search item should match")
 
 local logs, logs_err = helpers.collect(compass.componentLogs("comp-1", { limit = 2, per_page = 5 }))
 test.assert_eq(logs_err, nil, "componentLogs collect should succeed")
 test.assert_eq(#logs, 2, "componentLogs should yield two logs")
-test.assert_eq(logs[2][1].value, "healthy", "second log value should match")
+test.assert_eq(logs[2].value, "healthy", "second log value should match")
 
 test.assert_eq(#last_calls, 2, "two list operations should have been captured")
 

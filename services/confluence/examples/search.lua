@@ -10,6 +10,5 @@ local results = helpers.collect(
 )
 
 for _, row in ipairs(results) do
-	local item = row[1]
-	print(item.title, item.url)
+	print(row.title, row.url)
 end

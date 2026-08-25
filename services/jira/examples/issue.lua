@@ -76,20 +76,17 @@ do
     if search_err then error(search_err.message or tostring(search_err)) end
 
     local summaries = helpers.collect(iter, {
-        filter = function(row)
-            local item = row[1]
+        filter = function(item)
             local p = helpers.get_in(item, "fields.priority.name")
             return p == "High" or p == "Highest"
         end,
-        transform = function(row)
-            local item = row[1]
-            return { string.format("%s: %s", item.key, item.fields.summary) }
+        transform = function(item)
+            return string.format("%s: %s", item.key, item.fields.summary)
         end,
     })
 
     print("\nHigh priority summaries:")
-    for idx, row in ipairs(summaries) do
-        local s = row[1]
+    for idx, s in ipairs(summaries) do
         if idx > 5 then break end
         print("  " .. s)
     end

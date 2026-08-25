@@ -13,7 +13,7 @@ if #alerts == 0 then
 	return { count = 0, note = "no matching alerts" }
 end
 
-local alert, describe_err = gcloud.monitoring.alert.describe(alerts[1][1].name)
+local alert, describe_err = gcloud.monitoring.alert.describe(alerts[1].name)
 if describe_err then error(describe_err.message or tostring(describe_err)) end
 
 return {

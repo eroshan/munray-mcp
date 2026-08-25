@@ -43,6 +43,7 @@
   },
   "iter_helpers": [
     "collect",
+    "collect_tuples",
     "first",
     "take",
     "skip",
@@ -57,6 +58,7 @@
     },
     "helpers": {
       "collect": "(iterator, opts) -> core.result",
+      "collect_tuples": "(iterator, opts) -> core.result",
       "contains": "(str, substr) -> core.result",
       "copy": "(t) -> core.result",
       "filter": "(arr, pred) -> core.result",

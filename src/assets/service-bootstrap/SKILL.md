@@ -181,6 +181,8 @@ subsequent pages on demand. Consumers use:
 local items, err = helpers.collect(iterator, { limit = 100 })
 ```
 
+`items` contains the primary value from each iterator step. If a consumer explicitly needs auxiliary values such as page metadata, it must use `helpers.collect_tuples(iterator, { limit = 100 })` instead.
+
 An iterator ends by returning `nil` as its first value. If fetching a later page
 fails, it throws a structured public error; do not stringify raw transport
 errors. Use the actual HTTP or GraphQL pagination options shown by `sys list`.

@@ -13,7 +13,7 @@ if #policies == 0 then
 	return { count = 0, note = "no matching policies" }
 end
 
-local policy, describe_err = gcloud.monitoring.policy.describe(policies[1][1].name)
+local policy, describe_err = gcloud.monitoring.policy.describe(policies[1].name)
 if describe_err then error(describe_err.message or tostring(describe_err)) end
 
 return {

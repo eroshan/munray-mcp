@@ -2,6 +2,7 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
+    process::Command as ProcessCommand,
     time::Instant,
 };
 
@@ -14,7 +15,7 @@ use mcp_server::{
 };
 use rmcp::{ServiceExt, transport::stdio};
 
-const COMMAND_NAME: &str = "munray";
+const COMMAND_NAME: &str = env!("CARGO_PKG_NAME");
 
 #[derive(Parser)]
 #[command(
@@ -91,6 +92,11 @@ enum SysListFormat {
 
 #[derive(Subcommand)]
 enum SvcCommand {
+    /// Clone a service pack from an HTTPS or Git repository URL.
+    Install {
+        /// HTTPS or SSH (git@host:path) repository clone URL.
+        repository: String,
+    },
     /// Create a safe, schema-valid service-pack skeleton.
     Bootstrap {
         /// Lua namespace and directory name (lowercase letters, digits, and underscores).
@@ -117,8 +123,9 @@ enum SvcCommand {
         name: Option<String>,
     },
     /// Remove an installed service pack.
+    #[command(aliases = ["delete", "remove"])]
     Uninstall {
-        /// Lua namespace and directory name of the service pack to remove.
+        /// Directory name of the service pack to remove.
         name: String,
         /// Confirm removal of the service pack directory.
         #[arg(long)]
@@ -139,6 +146,9 @@ async fn run() -> Result<()> {
     cli.svc_dir = resolve_service_dir(cli.svc_dir);
     if let Some(Command::Svc { command }) = &cli.command {
         match command {
+            SvcCommand::Install { repository } => {
+                install_service(cli.svc_dir.as_deref(), repository)?;
+            }
             SvcCommand::Bootstrap {
                 name,
                 force,
@@ -228,6 +238,81 @@ const BOOTSTRAP_GUARDED_INTEGRATION_TEST: &str =
 const BOOTSTRAP_EXAMPLE: &str = include_str!("assets/service-bootstrap/service.lua");
 const BOOTSTRAP_SKILL: &str = include_str!("assets/service-bootstrap/SKILL.md");
 
+fn install_service(service_dir: Option<&Path>, repository: &str) -> Result<()> {
+    let name = service_name_from_repository_url(repository)?;
+    let service_dir = require_service_dir(service_dir.map(Path::to_path_buf))?;
+    fs::create_dir_all(&service_dir)?;
+    // Keep the destination as <services>/<pack>, even when --svc-dir was
+    // supplied relatively. Git runs in this directory for stale-cwd safety.
+    let service_dir = fs::canonicalize(service_dir)?;
+    let pack_dir = service_dir.join(name);
+    if pack_dir.exists() {
+        bail!("service pack {} already exists", pack_dir.display());
+    }
+
+    // Git probes its working directory even when the clone destination is absolute. Run it
+    // from the configured service directory so an invocation from a stale/deleted cwd works.
+    let status = ProcessCommand::new("git")
+        .current_dir(&service_dir)
+        .args(["clone", "--", repository])
+        .arg(&pack_dir)
+        .status()
+        .map_err(|error| anyhow::anyhow!("failed to start git: {error}"))?;
+    if !status.success() {
+        // Git normally removes a failed clone itself. Ensure it cannot be mistaken for an
+        // installed pack when it leaves a partial destination behind.
+        let _ = fs::remove_dir_all(&pack_dir);
+        bail!("git clone failed with status {status}");
+    }
+
+    println!("Installed {} in {}", name, pack_dir.display());
+    Ok(())
+}
+
+fn service_name_from_repository_url(repository: &str) -> Result<&str> {
+    let (host, path) = if let Some(remainder) = repository.strip_prefix("https://") {
+        remainder
+            .split_once('/')
+            .ok_or_else(|| anyhow::anyhow!("repository URL must include a repository path"))?
+    } else if let Some(remainder) = repository.strip_prefix("git@") {
+        remainder
+            .split_once(':')
+            .ok_or_else(|| anyhow::anyhow!("Git repository URL must include a repository path"))?
+    } else {
+        bail!("repository URL must use https:// or git@host:path");
+    };
+    if host.is_empty()
+        || host.contains(['@', '?', '#', '\\'])
+        || host.bytes().any(|byte| byte.is_ascii_whitespace())
+        || path.contains(['?', '#', '\\'])
+    {
+        bail!("invalid repository URL");
+    }
+
+    let directory = path.trim_end_matches('/');
+    let name = directory
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .strip_suffix(".git")
+        .unwrap_or_else(|| directory.rsplit('/').next().unwrap_or_default());
+    let name = name
+        .strip_prefix(&format!("{COMMAND_NAME}-"))
+        .unwrap_or(name);
+    if !is_service_directory_name(name) {
+        bail!("repository name {name:?} cannot be used as a service directory");
+    }
+    Ok(name)
+}
+
+fn is_service_directory_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
 fn bootstrap_service(service_dir: Option<&Path>, name: &str, force: bool) -> Result<()> {
     if !is_service_name(name) {
         bail!(
@@ -287,10 +372,8 @@ fn bootstrap_service(service_dir: Option<&Path>, name: &str, force: bool) -> Res
 fn update_bootstrap_skill(service_dir: Option<&Path>, name: Option<&str>) -> Result<()> {
     let service_dir = require_service_dir(service_dir.map(Path::to_path_buf))?;
     let pack_dirs = if let Some(name) = name {
-        if !is_service_name(name) {
-            bail!(
-                "invalid service name {name:?}: use lowercase ASCII letters, digits, and underscores; the first character must be a letter"
-            );
+        if !is_service_directory_name(name) {
+            bail!("invalid service directory name {name:?}");
         }
         vec![service_dir.join(name)]
     } else {
@@ -365,10 +448,8 @@ fn list_services(service_dir: Option<&Path>) -> Result<()> {
 }
 
 fn uninstall_service(service_dir: Option<&Path>, name: &str, force: bool) -> Result<()> {
-    if !is_service_name(name) {
-        bail!(
-            "invalid service name {name:?}: use lowercase ASCII letters, digits, and underscores; the first character must be a letter"
-        );
+    if !is_service_directory_name(name) {
+        bail!("invalid service directory name {name:?}");
     }
     let service_dir = require_service_dir(service_dir.map(Path::to_path_buf))?;
     let pack_dir = service_dir.join(name);
@@ -568,10 +649,8 @@ fn validate_service_name(service_dir: &Path, service_name: Option<&str>) -> Resu
     let Some(name) = service_name else {
         return Ok(());
     };
-    if !is_service_name(name) {
-        bail!(
-            "invalid service name {name:?}: use lowercase ASCII letters, digits, and underscores; the first character must be a letter"
-        );
+    if !is_service_directory_name(name) {
+        bail!("invalid service directory name {name:?}");
     }
     let pack = service_dir.join(name);
     if !pack.is_dir() || !pack.join("src").is_dir() {

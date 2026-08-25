@@ -32,7 +32,7 @@ Create a schema-valid starter pack with:
 munray svc bootstrap <service> --svc-dir <SVC_DIR>
 ```
 
-`<service>` must start with a lowercase ASCII letter and may then contain lowercase letters, digits, and underscores. The command refuses to overwrite an existing pack unless `--force` is explicit. Run `munray svc bootstrap [<service>] --update` to replace only the generated skill with the current version; omit `<service>` to update every service pack in the configured service directory. List installed packs with `munray svc list`. Remove a pack with `munray svc uninstall <service> --force`; removal requires explicit confirmation.
+`<service>` must start with a lowercase ASCII letter and may then contain lowercase letters, digits, and underscores. The command refuses to overwrite an existing pack unless `--force` is explicit. Run `munray svc bootstrap [<service>] --update` to replace only the generated skill with the current version; omit `<service>` to update every service pack in the configured service directory. Install an existing pack with `munray svc install <https://...>` or `git@host:path`; its repository basename (without `.git`) becomes its directory name in `SVC_DIR`; a `<package-name>-` prefix is removed, so `munray-github.git` installs as `github`. The local Git client owns authentication and transport configuration, so configure its credentials before installing private packs. List installed packs with `munray svc list`. Remove a pack with `munray svc uninstall <service> --force` (or `svc delete` / `svc remove`); removal requires explicit confirmation.
 
 The generated source, example, capability test, and `.agents/skills/munray-service-pack/SKILL.md` are the canonical common-pack starting point. The skill is a self-contained, agent-neutral guide for autonomous service development; it directs agents to use `munray sys list --format markdown` as the installed-version reference for raw primitives rather than requiring core source access. The generated files and their inline comments cover the layout, load order, namespace/schema setup, private helpers, raw-primitive capture, CLI allowlisting, secret handling, guarded mutations, iterators, and the required next steps. Replace every `<...>` placeholder and the `NOT_IMPLEMENTED` starter operation before using the pack.
 
@@ -56,11 +56,13 @@ Recommended return conventions (standardized by schema contracts):
 
 List operations should return iterators that may lazily paginate.
 
-Materialize with `helpers.collect(iterator, opts)`:
+Materialize primary yielded values with `helpers.collect(iterator, opts)`. For an iterator step returning `item, meta`, this returns `{item, ...}`; pagination metadata is used internally for `max_pages` but is not included in the result. Its `filter` and `transform` callbacks receive the primary item, not a tuple.
 
 - `limit` (max items)
 - `max_pages` (safety guard)
 - `filter` / `transform`
+
+Use `helpers.collect_tuples(iterator, opts)` only when an advanced consumer needs every value returned by each step. It preserves the legacy packed rows, such as `{ {item, meta}, ... }`, and its callbacks receive those rows.
 
 Additional iterator helpers (often useful for agents):
 

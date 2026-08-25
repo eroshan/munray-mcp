@@ -30,7 +30,7 @@ print(json.encode(non_empty))
         .write_stdin(script)
         .assert()
         .success()
-        .stdout("[]\n[]\n[[{\"n\":1}]]\n");
+        .stdout("[]\n[]\n[{\"n\":1}]\n");
 }
 
 #[test]
@@ -115,11 +115,11 @@ print(json.encode(all))
         .write_stdin(script)
         .assert()
         .success()
-        .stdout("[]\n[[1],[2],[3]]\n");
+        .stdout("[]\n[1,2,3]\n");
 }
 
 #[test]
-fn helpers_collect_and_take_accept_pair_style_iterators() {
+fn helpers_collect_returns_primary_values_and_collect_tuples_preserves_metadata() {
     let script = r#"
 local function pairs_iter()
   local keys = { "a", "b" }
@@ -136,6 +136,10 @@ local collected, collected_err = helpers.collect(pairs_iter(), { limit = 2 })
 if collected_err then error(collected_err.message) end
 print(json.encode(collected))
 
+local tuples, tuples_err = helpers.collect_tuples(pairs_iter(), { limit = 2 })
+if tuples_err then error(tuples_err.message) end
+print(json.encode(tuples))
+
 local taken, taken_err = helpers.take(pairs_iter(), 2)
 if taken_err then error(taken_err.message) end
 print(json.encode(taken))
@@ -146,7 +150,7 @@ print(json.encode(taken))
         .write_stdin(script)
         .assert()
         .success()
-        .stdout("[[\"a\",1],[\"b\",2]]\n[[\"a\",1],[\"b\",2]]\n");
+        .stdout("[\"a\",\"b\"]\n[[\"a\",1],[\"b\",2]]\n[\"a\",\"b\"]\n");
 }
 
 #[test]
@@ -170,8 +174,8 @@ local function iter()
 end
 
 local collected, collect_err = helpers.collect(iter(), {
-  filter = function(row, index) return row[1] ~= nil and index >= 2 end,
-  transform = function(row, index) return { row[1] .. ":" .. index } end,
+  filter = function(item, index) return item ~= nil and index >= 2 end,
+  transform = function(item, index) return item .. ":" .. index end,
 })
 if collect_err then error(collect_err.message) end
 print(json.encode(collected))
@@ -182,11 +186,11 @@ print(json.encode(collected))
         .write_stdin(script)
         .assert()
         .success()
-        .stdout("[\"b\"]\nb\n[[\"b:2\"],[\"c:3\"]]\n");
+        .stdout("[\"b\"]\nb\n[\"b:2\",\"c:3\"]\n");
 }
 
 #[test]
-fn helpers_first_and_collect_preserve_iterator_tuples() {
+fn helpers_first_preserves_tuples_while_collect_returns_primary_values() {
     let script = r#"
 local function single_values()
   local values = {"a", "b"}
@@ -223,6 +227,10 @@ local collected_nil, collected_nil_err = helpers.collect(with_nil())
 if collected_nil_err then error(collected_nil_err.message) end
 print(json.encode(collected_nil))
 
+local tuples_nil, tuples_nil_err = helpers.collect_tuples(with_nil())
+if tuples_nil_err then error(tuples_nil_err.message) end
+print(json.encode(tuples_nil))
+
 local empty, empty_err = helpers.first(function() return nil, "ignored" end)
 if empty_err then error(empty_err.message) end
 print(empty == nil)
@@ -233,7 +241,7 @@ print(empty == nil)
         .write_stdin(script)
         .assert()
         .success()
-        .stdout("[[\"a\"],[\"b\"]]\n[\"a\"]\t1\na\ttrue\t3\t3\n[\"a\",null,3]\n[[\"a\",null,3]]\ntrue\n");
+        .stdout("[\"a\",\"b\"]\n[\"a\"]\t1\na\ttrue\t3\t3\n[\"a\",null,3]\n[\"a\"]\n[[\"a\",null,3]]\ntrue\n");
 }
 
 #[test]

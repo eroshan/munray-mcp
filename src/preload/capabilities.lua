@@ -574,7 +574,7 @@ local function ai_context(_)
 			}
 		},
 		hints = hints,
-		iter_helpers = {"collect", "first", "take", "skip", "page"},
+		iter_helpers = {"collect", "collect_tuples", "first", "take", "skip", "page"},
 		runtime = runtime,
 		namespaces = namespaces_table,
 	}
