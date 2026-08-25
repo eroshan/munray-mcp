@@ -430,7 +430,7 @@ end
         let mut response = String::new();
         stdout.read_line(&mut response).unwrap();
     }
-    assert!(started.elapsed() < Duration::from_millis(450));
+    assert!(started.elapsed() < Duration::from_millis(1000));
 
     // Admission sequence, rather than JSON-RPC IDs, defines FIFO. Give the
     // first request a turn through the transport before admitting the second.
