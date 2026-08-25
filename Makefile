@@ -3,7 +3,7 @@ BIN := target/release/$(PACKAGE_NAME)
 DEBUG_BIN := target/debug/$(PACKAGE_NAME)
 INSTALL_BIN_DIR ?= $(HOME)/.local/bin
 
-.PHONY: build build-debug check fmt lint test test-all test-services test-ignored validate install instal-debug clean
+.PHONY: build build-debug check fmt lint test test-all test-services test-ignored validate install instal-debug uninstall clean
 
 build:
 	cargo build --release --offline
@@ -19,6 +19,9 @@ install: build $(INSTALL_BIN_DIR)
 
 instal-debug: build-debug $(INSTALL_BIN_DIR)
 	install -m 755 "$(DEBUG_BIN)" "$(INSTALL_BIN_DIR)/$(PACKAGE_NAME)"
+
+uninstall:
+	rm -f "$(INSTALL_BIN_DIR)/$(PACKAGE_NAME)"
 
 check:
 	cargo check --offline --all-targets
