@@ -528,7 +528,8 @@ local function ai_context(_)
 		global = {
 			"Use schema(target) for types/docs",
 			"Use examples(target) for code",
-			"Ops ending with * are guarded; require guarded mode"
+			"Ops ending with * are guarded; require guarded mode",
+			"MANDATORY: Cache reusable results in the current session and reuse them; re-fetch only when the source may have changed."
 		}
 	}
 
