@@ -1,15 +1,16 @@
-#[cfg(unix)]
 use std::{
-    fs,
     io::{BufRead, BufReader, Read, Write},
-    os::unix::{
-        fs::PermissionsExt,
-        net::{UnixListener, UnixStream},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
     },
-    path::PathBuf,
-    thread,
+    thread::{self, JoinHandle},
+    time::Duration,
 };
 
+use interprocess::local_socket::{
+    GenericNamespaced, ListenerNonblockingMode, ListenerOptions, ToNsName, prelude::*,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::mcp::McpServer;
@@ -56,44 +57,57 @@ impl IngestResponse {
     }
 }
 
-#[cfg(unix)]
 pub struct IngestListenerGuard {
-    path: PathBuf,
+    shutdown: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
 }
 
-#[cfg(unix)]
 impl Drop for IngestListenerGuard {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        self.shutdown.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take()
+            && thread.thread().id() != thread::current().id()
+        {
+            let _ = thread.join();
+        }
     }
 }
 
-#[cfg(unix)]
-pub fn endpoint(server_id: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "{}-ingest-{server_id}.sock",
-        env!("CARGO_PKG_NAME")
-    ))
+fn endpoint(server_id: &str) -> String {
+    format!("{}-ingest-{server_id}", env!("CARGO_PKG_NAME"))
 }
 
-#[cfg(unix)]
 pub fn start_listener(server: McpServer, server_id: &str) -> std::io::Result<IngestListenerGuard> {
-    let path = endpoint(server_id);
-    let _ = fs::remove_file(&path);
-    let listener = UnixListener::bind(&path)?;
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    thread::spawn(move || {
-        for stream in listener.incoming() {
-            let Ok(stream) = stream else { break };
-            let server = server.clone();
-            thread::spawn(move || handle_connection(server, stream));
+    let raw_name = endpoint(server_id);
+    let name = raw_name.to_ns_name::<GenericNamespaced>()?;
+    let listener = ListenerOptions::new()
+        .name(name)
+        .nonblocking(ListenerNonblockingMode::Accept)
+        .create_sync()?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let thread_shutdown = Arc::clone(&shutdown);
+    let thread = thread::spawn(move || {
+        while !thread_shutdown.load(Ordering::Acquire) {
+            match listener.accept() {
+                Ok(stream) => {
+                    let server = server.clone();
+                    thread::spawn(move || handle_connection(server, stream));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
         }
     });
-    Ok(IngestListenerGuard { path })
+
+    Ok(IngestListenerGuard {
+        shutdown,
+        thread: Some(thread),
+    })
 }
 
-#[cfg(unix)]
-fn handle_connection(server: McpServer, mut stream: UnixStream) {
+fn handle_connection(server: McpServer, mut stream: LocalSocketStream) {
     let response = read_request(&mut stream).and_then(|(header, payload)| {
         if header.op != "ingest_text_v1" {
             return Err(IngestResponse::failure(
@@ -126,8 +140,7 @@ fn handle_connection(server: McpServer, mut stream: UnixStream) {
     }
 }
 
-#[cfg(unix)]
-fn read_request(stream: &mut UnixStream) -> Result<(IngestHeader, Vec<u8>), IngestResponse> {
+fn read_request(stream: &mut impl Read) -> Result<(IngestHeader, Vec<u8>), IngestResponse> {
     let mut reader = BufReader::new(stream);
     let mut header_line = String::new();
     reader
@@ -148,13 +161,16 @@ fn read_request(stream: &mut UnixStream) -> Result<(IngestHeader, Vec<u8>), Inge
     Ok((header, payload))
 }
 
-#[cfg(unix)]
 pub fn send_text(
     server_id: &str,
     session_id: &str,
     payload: &[u8],
 ) -> Result<IngestResponse, String> {
-    let mut stream = UnixStream::connect(endpoint(server_id)).map_err(|error| error.to_string())?;
+    let raw_name = endpoint(server_id);
+    let name = raw_name
+        .to_ns_name::<GenericNamespaced>()
+        .map_err(|error| error.to_string())?;
+    let mut stream = LocalSocketStream::connect(name).map_err(|error| error.to_string())?;
     let mut header = serde_json::to_vec(&IngestHeader {
         op: "ingest_text_v1".into(),
         session_id: session_id.into(),
@@ -169,8 +185,24 @@ pub fn send_text(
         .write_all(payload)
         .map_err(|error| error.to_string())?;
     let mut response = String::new();
-    BufReader::new(stream)
+    BufReader::new(&mut stream)
         .read_line(&mut response)
         .map_err(|error| error.to_string())?;
     serde_json::from_str(&response).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropping_listener_guard_releases_endpoint() {
+        let server_id = format!("drop-{}", uuid::Uuid::new_v4());
+        let guard = start_listener(McpServer::new(None).unwrap(), &server_id).unwrap();
+        drop(guard);
+
+        let raw_name = endpoint(&server_id);
+        let name = raw_name.to_ns_name::<GenericNamespaced>().unwrap();
+        ListenerOptions::new().name(name).create_sync().unwrap();
+    }
 }

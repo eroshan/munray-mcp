@@ -204,7 +204,6 @@ async fn run() -> Result<()> {
                 delegate_guarded_approval_to_harness,
             )
             .map_err(anyhow::Error::msg)?;
-            #[cfg(unix)]
             let _ingest = match mcp_server::ipc::start_listener(
                 server.clone(),
                 &std::process::id().to_string(),
@@ -504,11 +503,8 @@ fn run_ingest(server: &str, session: &str, json_mode: bool) -> Result<()> {
         bail!("stdin exceeds {} bytes", mcp_server::ipc::MAX_INGEST_BYTES)
     }
     std::str::from_utf8(&payload).map_err(|_| anyhow::anyhow!("stdin is not valid UTF-8"))?;
-    #[cfg(unix)]
     let response =
         mcp_server::ipc::send_text(server, session, &payload).map_err(anyhow::Error::msg)?;
-    #[cfg(not(unix))]
-    bail!("ingest IPC is not supported on this platform");
     if !response.ok {
         let error = response.error.unwrap_or(mcp_server::ipc::IngestError {
             code: "INGEST_WRITE_FAILED".into(),
