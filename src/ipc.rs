@@ -194,6 +194,7 @@ pub fn send_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
 
     #[test]
     fn dropping_listener_guard_releases_endpoint() {
@@ -201,8 +202,24 @@ mod tests {
         let guard = start_listener(McpServer::new(None).unwrap(), &server_id).unwrap();
         drop(guard);
 
+        // Local-socket namespace cleanup can lag briefly after the listener thread exits.
         let raw_name = endpoint(&server_id);
-        let name = raw_name.to_ns_name::<GenericNamespaced>().unwrap();
-        ListenerOptions::new().name(name).create_sync().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let name = raw_name.as_str().to_ns_name::<GenericNamespaced>().unwrap();
+            match ListenerOptions::new().name(name).create_sync() {
+                Ok(listener) => {
+                    drop(listener);
+                    break;
+                }
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::AddrInUse
+                        && Instant::now() < deadline =>
+                {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("listener endpoint was not released: {error}"),
+            }
+        }
     }
 }
