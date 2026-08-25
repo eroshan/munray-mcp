@@ -12,7 +12,7 @@
     },
     "core.result": {
       "description": "(val, err). Always check err first.",
-      "example": "diffs, err = gitlab.mr.diff(repo, iid, {})",
+      "example": "value, err = some.ns.get(id)",
       "pattern": "val, err = fn(...)"
     },
     "error": "{code:string, message:string, recoverable?:boolean, context?:table}"

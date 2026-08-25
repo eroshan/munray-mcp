@@ -28,7 +28,7 @@ local RESULT_CONTRACT = {
 	hint = "Use examples(<namespace>) for runnable usage",
 	description = "(val, err). Always check err first.",
 	pattern = "val, err = fn(...)" ,
-	example = "diffs, err = gitlab.mr.diff(repo, iid, {})",
+	example = "value, err = some.ns.get(id)",
 }
 
 local ASYNC_RESULT_CONTRACT = {

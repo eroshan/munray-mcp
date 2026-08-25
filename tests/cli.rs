@@ -547,37 +547,3 @@ fn stats_reports_function_usage_in_legacy_text_format() {
         .stdout(predicate::str::contains("json.encode"))
         .stdout(predicate::str::contains("Never used functions"));
 }
-
-#[test]
-fn stats_reports_historical_service_usage_even_without_the_service_dir() {
-    let directory = tempfile::tempdir().unwrap();
-    let store = directory.path().join("store.json");
-    let services = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("services");
-
-    Command::cargo_bin(env!("CARGO_PKG_NAME"))
-        .unwrap()
-        .args([
-            "--svc-dir",
-            services.to_str().unwrap(),
-            "--store-path",
-            store.to_str().unwrap(),
-        ])
-        .write_stdin(
-            r#"
-local _iter = gitlab.mr.list("group/project", { limit = 1 })
-return true
-"#,
-        )
-        .assert()
-        .success();
-
-    Command::cargo_bin(env!("CARGO_PKG_NAME"))
-        .unwrap()
-        .args(["--store-path", store.to_str().unwrap(), "stats"])
-        .env_remove("MUNRAY_MCP_SVC_DIR")
-        .env("MUNRAY_MCP_HOME", directory.path().join("empty-data-home"))
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("gitlab"))
-        .stdout(predicate::str::contains("gitlab.mr.list"));
-}

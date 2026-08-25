@@ -184,20 +184,13 @@ assert(summary == "Hello")
 				{ name = "err", type = "core.error|nil" }
 			},
 			examples = [[
--- Get first open MR
-local row, err = helpers.first(gitlab.mr.list(repo, {state = "opened"}))
+-- Get the first item from an iterator.
+local row, err = helpers.first(iterator)
 if err then error(err.message) end
-local mr = row and row[1]
-if mr then
-  print("First open MR:", mr.title)
-else
-  print("No open MRs found")
+local item = row and row[1]
+if item then
+  print("First item:", item)
 end
-
--- Get most recent failed pipeline
-local pipeline_row, err2 = helpers.first(gitlab.pipeline.list(repo, {status = "failed"}))
-if err2 then error(err2.message) end
-local pipeline = pipeline_row and pipeline_row[1]
 ]],
 		},
 		{
@@ -215,14 +208,10 @@ local pipeline = pipeline_row and pipeline_row[1]
 				{ name = "err", type = "core.error|nil" }
 			},
 			examples = [[
--- Get 5 most recent pipelines
-local recent, err = helpers.take(gitlab.pipeline.list(repo), 5)
+-- Take five items from an iterator.
+local items, err = helpers.take(iterator, 5)
 if err then error(err.message) end
-print("Got", #recent, "pipelines")
-
--- Get 10 most recent issues
-local issues, err2 = helpers.take(jira.issue.list("PROJ"), 10)
-if err2 then error(err2.message) end
+print("Got", #items, "items")
 ]],
 		},
 		{
@@ -241,14 +230,10 @@ if err2 then error(err2.message) end
 				{ name = "err", type = "core.error|nil" }
 			},
 			examples = [[
--- Get second page of 50 issues
-local page2, err = helpers.page(jira.issue.list("PROJ"), 2, 50)
+-- Get the second page of 50 items from an iterator.
+local page2, err = helpers.page(iterator, 2, 50)
 if err then error(err.message) end
-print("Page 2 has", #page2, "issues")
-
--- Get first page
-local page1, err2 = helpers.page(gitlab.mr.list(repo), 1, 20)
-if err2 then error(err2.message) end
+print("Page 2 has", #page2, "items")
 ]],
 		},
 	},

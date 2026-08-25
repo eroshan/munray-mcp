@@ -367,7 +367,7 @@ mod tests {
                 total_blocked: 0.0,
             },
             services: vec![ServiceStat {
-                name: "gitlab".to_owned(),
+                name: "vfs".to_owned(),
                 available: 2,
                 used: 1,
                 unused: 1,
@@ -377,34 +377,34 @@ mod tests {
             }],
             functions: vec![
                 FunctionStat {
-                    path: "gitlab.job.log".to_owned(),
+                    path: "vfs.read_text".to_owned(),
                     calls: 7.0,
                     errors: 1.0,
                     ..FunctionStat::default()
                 },
                 FunctionStat {
-                    path: "gitlab.repo.get".to_owned(),
+                    path: "vfs.stat".to_owned(),
                     ..FunctionStat::default()
                 },
             ],
-            unused: vec!["gitlab.repo.get".to_owned()],
+            unused: vec!["vfs.stat".to_owned()],
         };
 
         let out = render_text(&report);
         assert!(out.contains("Function usage stats\nStore: /tmp/store.db"));
         assert!(out.contains("Coverage: 50.0%"));
         assert!(out.contains("Top functions by calls (top 20)"));
-        assert!(out.contains("Never used functions (1)\n  gitlab.repo.get\n"));
+        assert!(out.contains("Never used functions (1)\n  vfs.stat\n"));
     }
 
     #[test]
     fn build_report_includes_historical_only_metrics_in_usage_totals() {
         let mut metrics = HashMap::new();
         metrics.insert(
-            "gitlab.job.log".to_owned(),
+            "vfs.read_text".to_owned(),
             FunctionStat {
-                path: "gitlab.job.log".to_owned(),
-                service: "gitlab".to_owned(),
+                path: "vfs.read_text".to_owned(),
+                service: "vfs".to_owned(),
                 calls: 7.0,
                 errors: 1.0,
                 ..FunctionStat::default()
@@ -425,9 +425,9 @@ mod tests {
         let report = build_report(
             PathBuf::from("/tmp/store.db"),
             vec![
-                "gitlab.job.log".to_owned(),
-                "gitlab.repo.get".to_owned(),
-                "slack.msg.send".to_owned(),
+                "vfs.read_text".to_owned(),
+                "vfs.stat".to_owned(),
+                "vfs.to_txt".to_owned(),
             ],
             metrics,
         );
@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(report.summary.total_calls, 1006.0);
         assert_eq!(report.summary.total_errors, 13.0);
         assert_eq!(report.summary.total_blocked, 3.0);
-        assert_eq!(report.unused, ["gitlab.repo.get", "slack.msg.send"]);
+        assert_eq!(report.unused, ["vfs.stat", "vfs.to_txt"]);
         assert!(
             report
                 .functions

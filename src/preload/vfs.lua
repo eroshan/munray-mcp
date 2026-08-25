@@ -120,8 +120,8 @@ print("Wrote", info.size, "bytes to", info.path)
 			},
 			returns_typed = { { name = "result", type = "ExposeResult" }, { name = "err", type = "core.error|nil" } },
 			examples = [[
--- Expose a downloaded GitLab artifact archive for agent inspection (requires guarded mode)
-local res, err = gitlab.job.artifact_download(repo, job_id, { file = "artifacts/job.zip" })
+-- Expose a downloaded archive for agent inspection (requires guarded mode)
+local res, err = download_archive()
 if err then error(err.message) end
 
 local exposed, err2 = vfs.expose({res.file})
