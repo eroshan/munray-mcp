@@ -111,7 +111,7 @@ fn dynamic_snippet_policy_is_captured_by_rust_wrapper() {
 }
 
 #[test]
-fn sys_is_not_a_public_snippet_namespace_but_trusted_snippets_can_use_it() {
+fn snippets_can_only_use_public_apis() {
     let runtime = LuaRuntime::new_session(None).unwrap();
     let rejected = runtime
         .execute(
@@ -124,24 +124,25 @@ fn sys_is_not_a_public_snippet_namespace_but_trusted_snippets_can_use_it() {
 
     runtime
         .execute(
-            "assert(snippets.save({namespace='trusted',name='put',code='function() return sys.kv.put(\"snippet-test\", \"key\", \"value\") end',schema_expr='{guarded=true}'}))",
+            "assert(snippets.save({namespace='public_only',name='environment',code='function() return sys == nil and os == nil and io == nil end',schema_expr='{guarded=true}'}))",
             ExecutionMode::Guarded,
             "<test>",
         )
         .unwrap();
     let blocked = runtime
         .execute(
-            "local value, err = trusted.put(); return {sys == nil, value == nil and err.code}",
+            "local value, err = public_only.environment(); return value == nil and err.code",
             ExecutionMode::ReadOnly,
             "<test>",
         )
         .unwrap();
-    assert_eq!(
-        blocked.result,
-        serde_json::json!([true, "GUARDED_TOOL_REQUIRED"])
-    );
+    assert_eq!(blocked.result, "GUARDED_TOOL_REQUIRED");
     let allowed = runtime
-        .execute("return trusted.put()", ExecutionMode::Guarded, "<test>")
+        .execute(
+            "return public_only.environment()",
+            ExecutionMode::Guarded,
+            "<test>",
+        )
         .unwrap();
     assert_eq!(allowed.result, true);
 }

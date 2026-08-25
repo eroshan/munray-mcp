@@ -72,6 +72,10 @@ pub struct McpServer {
     session_ttl: Duration,
     logger: Option<crate::logging::Logger>,
     instructions: String,
+    /// Form elicitation is normally required for guarded execution. This
+    /// explicit opt-in delegates that confirmation responsibility to the MCP
+    /// client harness when the protocol cannot elicit a form.
+    delegate_guarded_approval_to_harness: bool,
 }
 
 enum SessionEntry {
@@ -252,6 +256,14 @@ impl McpServer {
         store_path: Option<PathBuf>,
         logs_dir: Option<PathBuf>,
     ) -> Result<Self, String> {
+        Self::with_harness_guarded_approval(service_dir, store_path, logs_dir, false)
+    }
+    pub fn with_harness_guarded_approval(
+        service_dir: Option<PathBuf>,
+        store_path: Option<PathBuf>,
+        logs_dir: Option<PathBuf>,
+        delegate_guarded_approval_to_harness: bool,
+    ) -> Result<Self, String> {
         let instructions = initialization_instructions(service_dir.as_deref())?;
         Ok(Self {
             tool_router: Self::tool_router(),
@@ -265,6 +277,7 @@ impl McpServer {
                 .transpose()
                 .map_err(|error| format!("failed to initialize execution logging: {error}"))?,
             instructions,
+            delegate_guarded_approval_to_harness,
         })
     }
 
@@ -319,12 +332,19 @@ impl McpServer {
                 }
                 Err(_) => return self.reject_guarded(queued.session_id, "elicitation_failed"),
             }
+        } else if !self.delegate_guarded_approval_to_harness {
+            return self.reject_guarded_unavailable(queued.session_id);
         }
         self.execute(queued, ExecutionMode::Guarded).await
     }
 
     fn reject_guarded(&self, session_id: String, status: &str) -> Result<String, String> {
         serde_json::to_string_pretty(&json!({"session_id":session_id,"output":"","result":Value::Null,"error":{"code":"REJECTED_BY_GUARD","message":format!("guarded operation {status} by user"),"recoverable":false},"confirmation":{"status":status,"mode":"guarded"}})).map_err(|error| error.to_string())
+    }
+
+    fn reject_guarded_unavailable(&self, session_id: String) -> Result<String, String> {
+        const MESSAGE: &str = "runGuardedLuaScript requires MCP Form elicitation, but this client does not support it. Guarded execution is disabled. To delegate approval to your MCP harness, restart the server with `munray mcp --delegate-guarded-approval-to-harness`. Enable this only when the harness independently confirms or restricts every runGuardedLuaScript call; the harness is responsible for that configuration.";
+        serde_json::to_string_pretty(&json!({"session_id":session_id,"output":"","result":Value::Null,"error":{"code":"ELICITATION_UNAVAILABLE","message":MESSAGE,"recoverable":false},"confirmation":{"status":"elicitation_unavailable","mode":"guarded"}})).map_err(|error| error.to_string())
     }
 
     async fn prepare_request(&self, request: ScriptRequest) -> Result<QueuedRequest, String> {

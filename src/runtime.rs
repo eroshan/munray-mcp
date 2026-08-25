@@ -216,13 +216,27 @@ impl LuaRuntime {
                 crate::services::load_named(&runtime.lua, path, selected_service)?;
             runtime.discover_allowed_cli()?;
         }
-        crate::storage::restore_lua_snippets(&runtime.lua, &runtime.store)?;
-        runtime.install_snippet_hooks()?;
-        runtime.install_security_wrappers()?;
         runtime.finish_raw_authorization(allow_direct_raw);
+        // Hooks must capture the raw Lua implementations before the wrapper
+        // pass. The public snippets.save/delete functions are then wrapped
+        // once, rather than traversing nested wrappers and double-counting
+        // their metrics.
+        runtime.install_snippet_hooks()?;
+        // Build the public wrappers before projecting them into session code.
+        // Saved snippets are compiled afterwards against that projection, so
+        // their closures cannot retain trusted bootstrap globals.
+        runtime.install_security_wrappers()?;
         if !allow_direct_raw {
             runtime.install_session_environment()?;
         }
+        let snippet_environment = runtime
+            .session_env
+            .lock()
+            .as_ref()
+            .map(|environment| environment.table.clone());
+        crate::storage::restore_lua_snippets(&runtime.lua, &runtime.store, snippet_environment)?;
+        // Restored snippets add public functions after the first pass.
+        runtime.install_security_wrappers()?;
         Ok(runtime)
     }
 
@@ -765,7 +779,14 @@ impl LuaRuntime {
                         .ok_or_else(|| {
                             mlua::Error::runtime("snippet definition requires namespace and name")
                         })?;
-                    let result: MultiValue = original_save.call(definition)?;
+                    let environment = session_env
+                        .lock()
+                        .as_ref()
+                        .map(|environment| environment.table.clone());
+                    let result: MultiValue = match environment {
+                        Some(environment) => original_save.call((definition, environment))?,
+                        None => original_save.call(definition)?,
+                    };
                     if matches!(result.front(), Some(Value::Boolean(true))) {
                         registry.lock().remove(&path);
                         Self::install_security_wrappers_on(

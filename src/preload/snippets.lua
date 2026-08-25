@@ -24,9 +24,8 @@ local function normalize_definition(definition)
   if namespace:find("/", 1, true) or name:find("/", 1, true) then
     return fail("VALIDATION", "namespace and name use Lua dots, not filesystem slashes")
   end
-  -- Snippets are trusted code and may call sys.* from their implementation,
-  -- but sys itself is the raw primitive table and cannot be a public snippet
-  -- namespace. Publishing it would expose raw callbacks to MCP session code.
+  -- Snippets are public-API-only code. sys is always an internal raw primitive
+  -- table and can never be a public snippet namespace.
   if namespace == "sys" or namespace:sub(1, 4) == "sys." then
     return fail("VALIDATION", "sys is reserved for internal raw primitives; choose another public namespace")
   end
@@ -58,13 +57,16 @@ end
 
 -- Accept a function expression, a chunk returning a function, or an ordinary
 -- named Lua function declaration. The latter is useful when pasting normal Lua.
-local function compile_function(definition)
-  local expression, expression_err = load("return " .. definition.code, "=snippet:" .. definition.path, "t", _G)
+-- Snippets are user-authored code. Their closure must retain the same public
+-- API environment as MCP session code, never the trusted bootstrap globals.
+local function compile_function(definition, environment)
+  environment = environment or _G
+  local expression, expression_err = load("return " .. definition.code, "=snippet:" .. definition.path, "t", environment)
   if expression then
     local ok, fn = pcall(expression)
     if ok and type(fn) == "function" then return fn end
   end
-  local chunk, chunk_err = load(definition.code, "=snippet:" .. definition.path, "t", _G)
+  local chunk, chunk_err = load(definition.code, "=snippet:" .. definition.path, "t", environment)
   if not chunk then return fail("VALIDATION", chunk_err or expression_err) end
   local ok, value = pcall(chunk)
   if not ok then return fail("VALIDATION", tostring(value)) end
@@ -72,22 +74,22 @@ local function compile_function(definition)
   -- `function fibonacci(...) ... end` assigns the declared function globally.
   -- Move the matching bare declaration into its requested namespace and remove
   -- that temporary global so the snippet has no accidental public alias.
-  local declared = _G[definition.name]
+  local declared = environment[definition.name]
   if type(declared) == "function" then
-    _G[definition.name] = nil
+    environment[definition.name] = nil
     return declared
   end
   return fail("VALIDATION", "code must evaluate to a function, return a function, or declare function " .. definition.name .. "(...)")
 end
 
-local function descriptor(definition, name)
+local function descriptor(definition, name, environment)
   local descriptor = {
     name=name, signature="(...)", description=definition.description or "Stored function",
     returns_contract="core.result",
     returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}, origin="snippet",
   }
   if definition.schema_expr then
-    local chunk, err = load("return " .. definition.schema_expr, "=snippet-schema:" .. definition.path, "t", _G)
+    local chunk, err = load("return " .. definition.schema_expr, "=snippet-schema:" .. definition.path, "t", environment or _G)
     if not chunk then return fail("VALIDATION", err) end
     local ok, values = pcall(chunk)
     if not ok or type(values) ~= "table" then return fail("VALIDATION", tostring(values)) end
@@ -111,7 +113,7 @@ local function descriptor(definition, name)
   return descriptor
 end
 
-local function install(definition, replacing)
+local function install(definition, replacing, environment)
   local normalized, normalize_err = normalize_definition(definition)
   if not normalized then return nil, normalize_err end
   definition = normalized
@@ -119,9 +121,9 @@ local function install(definition, replacing)
   local namespace, name, err = namespace_for(definition.path, true)
   if err then return nil, name end
   if namespace[name] ~= nil and not replacing then return fail("ALREADY_EXISTS", definition.path .. " already exists", {namespace=definition.namespace, name=name}) end
-  local fn, compile_err = compile_function(definition)
+  local fn, compile_err = compile_function(definition, environment)
   if not fn then return nil, compile_err end
-  local schema, schema_err = descriptor(definition, name)
+  local schema, schema_err = descriptor(definition, name, environment)
   if not schema then return nil, schema_err end
   namespace[name] = fn
   local old = dynamic[definition.path]
@@ -135,11 +137,11 @@ local function install(definition, replacing)
   return definition, nil
 end
 
-function snippets.save(definition)
+function snippets.save(definition, environment)
   local definition_err
   definition, definition_err = normalize_definition(definition)
   if not definition then return nil, definition_err end
-  local normalized, err = install(definition, dynamic[definition.path] ~= nil)
+  local normalized, err = install(definition, dynamic[definition.path] ~= nil, environment)
   if not normalized then return nil, err end
   local persisted, persist_err = sys.snippets.save(normalized)
   if persist_err then
@@ -214,7 +216,7 @@ function snippets.list()
   if definitions then for _, definition in ipairs(definitions) do public_definition(definition) end end
   return definitions, err
 end
-function __restore_snippet(definition) return install(definition, false) end
+function __restore_snippet(definition, environment) return install(definition, false, environment) end
 
 local function descriptor_for(name, guarded, signature, description, examples)
   return {name=name,guarded=guarded,signature=signature,returns_contract="core.result",description=description,examples=examples,returns_typed={{name="result",type="any"},{name="err",type="core.error|nil"}}}

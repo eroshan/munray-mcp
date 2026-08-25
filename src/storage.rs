@@ -460,9 +460,14 @@ fn now_s() -> i64 {
         .as_secs() as i64
 }
 
-/// Restores persisted snippets into the trusted global environment before the
-/// runtime installs its immutable public-function wrappers.
-pub(crate) fn restore_lua_snippets(lua: &Lua, store: &Store) -> Result<()> {
+/// Restores persisted snippets before their public-function wrappers are
+/// registered. MCP runtimes provide the restricted session environment so
+/// restored snippet closures cannot retain trusted bootstrap globals.
+pub(crate) fn restore_lua_snippets(
+    lua: &Lua,
+    store: &Store,
+    environment: Option<mlua::Table>,
+) -> Result<()> {
     let restore: mlua::Function = lua.globals().get("__restore_snippet")?;
     for snippet in store.list_snippets()? {
         let definition = lua.create_table()?;
@@ -471,7 +476,10 @@ pub(crate) fn restore_lua_snippets(lua: &Lua, store: &Store) -> Result<()> {
         definition.set("schema_expr", snippet.schema_source)?;
         definition.set("example", snippet.example_source)?;
         definition.set("description", snippet.description)?;
-        let values: MultiValue = restore.call(definition)?;
+        let values: MultiValue = match &environment {
+            Some(environment) => restore.call((definition, environment.clone()))?,
+            None => restore.call(definition)?,
+        };
         if matches!(values.front(), Some(Value::Nil)) {
             bail!("failed to restore persisted Lua snippet")
         }

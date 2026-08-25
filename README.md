@@ -49,7 +49,10 @@ same store path.
 
 The MCP tools are `runLuaScript` (read-only) and
 `runGuardedLuaScript` (guarded). Supplying the same `session_id` keeps
-Lua globals alive across calls.
+Lua globals alive across calls. Guarded calls require MCP Form elicitation by
+default. For a harness without elicitation support, start the server with
+`munray mcp --delegate-guarded-approval-to-harness` only when that harness
+independently confirms or restricts every guarded tool call.
 Idle sessions are evicted after 30 minutes; independent sessions execute in
 parallel while calls reusing one session are processed FIFO.
 
@@ -65,6 +68,7 @@ and ingest. Unix ingest sockets are created with owner-only permissions.
 | `--svc-dir` | `MUNRAY_MCP_SVC_DIR` | Service-pack directory; defaults to `$MUNRAY_MCP_HOME/services` |
 | `--store-path` | `MUNRAY_MCP_STORE_PATH` | SQLite durable store, saved snippets, expiring KV values, and usage metrics; defaults to `$MUNRAY_MCP_HOME/store.db` |
 | `--logs-dir` | `MUNRAY_MCP_LOGS_DIR` | Owner-only JSONL execution logging |
+| `mcp --delegate-guarded-approval-to-harness` | — | Delegate approval for guarded calls to a harness that lacks MCP Form elicitation; the harness must enforce confirmation or restrictions for every guarded call |
 
 `munray stats` reports wrapped public function availability and usage metrics
 from the durable store:

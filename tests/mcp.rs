@@ -1,4 +1,5 @@
 use assert_cmd::{Command, cargo::cargo_bin};
+use predicates::prelude::PredicateBooleanExt;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -218,7 +219,7 @@ fn guarded_tool_requires_elicitation_before_execution_and_honors_the_decision() 
 }
 
 #[test]
-fn guarded_tool_without_form_elicitation_capability_uses_source_fallback() {
+fn guarded_tool_without_form_elicitation_capability_is_rejected_by_default() {
     let input = [
         line(json!({
             "jsonrpc":"2.0", "id":1, "method":"initialize",
@@ -245,7 +246,80 @@ fn guarded_tool_without_form_elicitation_capability_uses_source_fallback() {
         .assert()
         .success()
         .stdout(predicates::str::contains("fallback-test"))
+        .stdout(predicates::str::contains("ELICITATION_UNAVAILABLE"))
+        .stdout(predicates::str::contains(
+            "munray mcp --delegate-guarded-approval-to-harness",
+        ))
+        .stdout(predicates::str::contains("42").not());
+}
+
+#[test]
+fn guarded_tool_without_form_elicitation_can_delegate_to_the_harness() {
+    let input = [
+        line(json!({
+            "jsonrpc":"2.0", "id":1, "method":"initialize",
+            "params":{
+                "protocolVersion":"2025-11-25",
+                "capabilities":{},
+                "clientInfo":{"name":"test","version":"1"}
+            }
+        })),
+        line(json!({
+            "jsonrpc":"2.0", "id":2, "method":"tools/call",
+            "params":{"name":"runGuardedLuaScript","arguments":{
+                "code":"_G.delegated_mutation = 42; return _G.delegated_mutation",
+                "session_id":"delegated-test"
+            }}
+        })),
+    ]
+    .concat();
+
+    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+        .unwrap()
+        .args(["mcp", "--delegate-guarded-approval-to-harness"])
+        .write_stdin(input)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("delegated-test"))
         .stdout(predicates::str::contains("42"));
+}
+
+#[test]
+fn saved_mcp_snippets_capture_the_public_session_environment() {
+    let mut child = ProcessCommand::new(cargo_bin(env!("CARGO_PKG_NAME")))
+        .args(["mcp", "--delegate-guarded-approval-to-harness"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    exchange(
+        &mut stdin,
+        &mut stdout,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}),
+    );
+    let saved = exchange(
+        &mut stdin,
+        &mut stdout,
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"runGuardedLuaScript","arguments":{"code":"assert(snippets.save({namespace='probe',name='environment',code='function() return os == nil and sys == nil end'})); return probe.environment()","session_id":"snippet-environment"}}}),
+    );
+    let saved_payload: Value =
+        serde_json::from_str(saved["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(saved_payload["result"], true);
+
+    let called = exchange(
+        &mut stdin,
+        &mut stdout,
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"runLuaScript","arguments":{"code":"return probe.environment()","session_id":"snippet-environment"}}}),
+    );
+    let called_payload: Value =
+        serde_json::from_str(called["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(called_payload["result"], true);
+
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
 }
 
 #[test]

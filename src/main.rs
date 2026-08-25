@@ -43,7 +43,13 @@ enum Command {
     /// Execute Lua from stdin or a file (also the default command).
     Run { file: Option<PathBuf> },
     /// Serve MCP JSON-RPC over stdin/stdout.
-    Mcp,
+    Mcp {
+        /// Delegate approval of guarded tool calls to the MCP harness when it
+        /// does not support Form elicitation. The harness must independently
+        /// confirm or restrict every runGuardedLuaScript call.
+        #[arg(long)]
+        delegate_guarded_approval_to_harness: bool,
+    },
     /// Push UTF-8 stdin into an existing MCP session.
     Ingest {
         #[arg(long)]
@@ -188,9 +194,16 @@ async fn run() -> Result<()> {
         Some(Command::Run { file: Some(file) }) => {
             execute(Some(file), cli.svc_dir, cli.store_path, cli.logs_dir)
         }
-        Some(Command::Mcp) => {
-            let server = McpServer::with_options(cli.svc_dir, cli.store_path, cli.logs_dir)
-                .map_err(anyhow::Error::msg)?;
+        Some(Command::Mcp {
+            delegate_guarded_approval_to_harness,
+        }) => {
+            let server = McpServer::with_harness_guarded_approval(
+                cli.svc_dir,
+                cli.store_path,
+                cli.logs_dir,
+                delegate_guarded_approval_to_harness,
+            )
+            .map_err(anyhow::Error::msg)?;
             #[cfg(unix)]
             let _ingest = match mcp_server::ipc::start_listener(
                 server.clone(),
