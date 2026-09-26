@@ -165,6 +165,8 @@ Note: The async mechanism is standardized (task-based) and is described by the `
 
 `ctx_init()`, `schema(namespace)`, and `examples(namespace)` are implemented in core Lua and discover `__schema` tables attached to namespaces.
 
+`schema(namespace)` returns metadata for the exact namespace. When that namespace contains discovered descendant schemas, the response also includes a sorted `nested_namespaces` list of their fully qualified names and a `hint` telling the caller to repeat `schema()` with one of those names. The list is derived from discovered schemas rather than the optional declared `resources` table, so it also covers deeper descendants.
+
 The discovery cache is invalidated automatically when a snippet installs or deletes a namespace/function; there is no public invalidation API.
 
 ### 5.1 Service API Design Philosophy

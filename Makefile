@@ -16,6 +16,13 @@ $(INSTALL_BIN_DIR):
 
 install: build $(INSTALL_BIN_DIR)
 	install -m 755 "$(BIN)" "$(INSTALL_BIN_DIR)/$(PACKAGE_NAME)"
+	@case ":$$PATH:" in \
+		*":$(INSTALL_BIN_DIR):"*) ;; \
+		*) printf '%s\n' \
+			'Hint: $(INSTALL_BIN_DIR) is not in your PATH.' \
+			'Add this to your shell profile:' \
+			'  export PATH="$(INSTALL_BIN_DIR):$$PATH"' ;; \
+	esac
 
 instal-debug: build-debug $(INSTALL_BIN_DIR)
 	install -m 755 "$(DEBUG_BIN)" "$(INSTALL_BIN_DIR)/$(PACKAGE_NAME)"

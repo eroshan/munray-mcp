@@ -174,7 +174,7 @@ Service source and persisted snippets load before restrictions are applied. Wrap
 
 The service-pack layout, loading contract, schema metadata, examples, and public raw-API contract are maintained in [services/SERVICE-DESIGN.mkd](services/SERVICE-DESIGN.mkd). Packs are loaded during runtime construction; a missing service directory leaves only core APIs available. `svc validate` builds a temporary runtime and forces capability discovery, so invalid pack metadata fails validation.
 
-The loader records accepted pack directories and nested `init.lua` modules for `validate` reporting. MCP initialization appends non-empty `__intro` strings from successfully loaded packs under **Available service integrations**. Dynamic snippet changes invalidate capability discovery, so the next `ctx_init()`, `schema()`, or `examples()` observes the current snippet functions.
+The loader records accepted pack directories and nested `init.lua` modules for `validate` reporting. MCP initialization appends non-empty `__intro` strings from successfully loaded packs under **Available service integrations**. Dynamic snippet changes invalidate capability discovery, so the next `ctx_init()`, `schema()`, or `examples()` observes the current snippet functions. A `schema()` response for a namespace with discovered descendants includes their sorted, fully qualified names in `nested_namespaces` and a hint to repeat the lookup with one of those names.
 
 ## 8. MCP request lifecycle
 

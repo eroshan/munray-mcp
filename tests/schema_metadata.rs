@@ -70,6 +70,54 @@ demo = {
 }
 
 #[test]
+fn grouping_schema_guides_callers_to_full_nested_namespaces() {
+    let services = tempfile::tempdir().unwrap();
+    let src = services.path().join("demo/src");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(
+        src.join("init.lua"),
+        r#"
+demo = {
+  __schema = {
+    namespace = "demo", service = "demo", functions = {},
+    resources = { "demo.alpha", "demo.admin" },
+  },
+  alpha = {
+    __schema = { namespace = "demo.alpha", service = "demo", functions = {} },
+  },
+  admin = {
+    __schema = { namespace = "demo.admin", service = "demo", functions = {} },
+    user = {
+      __schema = { namespace = "demo.admin.user", service = "demo", functions = {} },
+    },
+  },
+}
+"#,
+    )
+    .unwrap();
+
+    let runtime = LuaRuntime::new(Some(services.path())).unwrap();
+    let execution = runtime
+        .execute(
+            r#"return {root = schema("demo"), leaf = schema("demo.alpha")}"#,
+            ExecutionMode::ReadOnly,
+            "<schema-navigation>",
+        )
+        .unwrap();
+
+    assert_eq!(
+        execution.result["root"]["nested_namespaces"],
+        serde_json::json!(["demo.admin", "demo.admin.user", "demo.alpha"])
+    );
+    assert_eq!(
+        execution.result["root"]["hint"],
+        "This namespace groups nested APIs. Repeat schema() with a fully qualified namespace from nested_namespaces."
+    );
+    assert!(execution.result["leaf"].get("hint").is_none());
+    assert!(execution.result["leaf"].get("nested_namespaces").is_none());
+}
+
+#[test]
 fn discovered_schemas_keep_descriptors_unmodified_and_normalize_empty_lists() {
     let services = tempfile::tempdir().unwrap();
     let src = services.path().join("demo/src");

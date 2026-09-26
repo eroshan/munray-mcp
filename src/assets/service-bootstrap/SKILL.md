@@ -104,7 +104,10 @@ skip marker so the harness reports `SKIPPED`, not `PASS`.
 
 Every public namespace table has a `__schema`. The root schema may have an empty
 `functions = {}` list when it only advertises child namespaces through
-`resources`. Every function descriptor must include all of:
+`resources`. For any namespace with discovered descendants, `schema(namespace)`
+returns their sorted, fully qualified names in `nested_namespaces` plus a hint to
+repeat the lookup with one of those names. Every function descriptor must include
+all of:
 
 ```lua
 {

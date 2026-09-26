@@ -82,12 +82,17 @@ target/release/munray stats --json
 
 ```sh
 make install
-make services-install
+
+# Install a service pack over HTTPS or SSH.
+munray svc install https://github.com/<owner>/munray-<service>.git
+munray svc install git@github.com:<owner>/munray-<service>.git
 ```
 
-The binary is installed to `~/.local/bin/munray` by default. Development
-service links are installed under `~/.local/share/munray/services`. Override
-`INSTALL_BIN_DIR` or `MUNRAY_MCP_HOME` when invoking Make if desired.
+The binary is installed to `~/.local/bin/munray` by default. `svc install`
+clones the service pack into `~/.local/share/munray/services`; a repository
+named `munray-<service>` is installed as `<service>`. Override
+`INSTALL_BIN_DIR` when invoking Make, or use `--svc-dir` or
+`MUNRAY_MCP_HOME` to select the service directory.
 
 ### Release binaries
 

@@ -581,6 +581,20 @@ local function ai_context(_)
 	}
 end
 
+local function descendant_namespaces(schemas, namespace)
+	local descendants = {}
+	local prefix = namespace .. "."
+
+	for candidate, _ in pairs(schemas) do
+		if candidate:sub(1, #prefix) == prefix then
+			table.insert(descendants, candidate)
+		end
+	end
+
+	table.sort(descendants)
+	return descendants
+end
+
 -- schema(namespace)
 function schema(namespace)
 	local d = discover()
@@ -613,6 +627,13 @@ function schema(namespace)
 	end
 
 	result.types = d.types_by_namespace[namespace] or nil
+
+	local descendants = descendant_namespaces(d.schemas, namespace)
+	if #descendants > 0 then
+		result.hint = "This namespace groups nested APIs. Repeat schema() with a fully qualified namespace from nested_namespaces."
+		result.nested_namespaces = descendants
+	end
+
 	return result
 end
 
