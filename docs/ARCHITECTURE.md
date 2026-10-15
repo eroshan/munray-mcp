@@ -423,6 +423,8 @@ Uncaught Lua/embedding errors are normalized at the MCP boundary into `EXECUTION
 
 ## 14. Current limits and verification
 
+`rust-toolchain.toml` pins Rust 1.99.0 with rustfmt and Clippy for development and CI. Local `cargo`/`rustc` commands must use rustup shims (not a standalone compiler earlier in `PATH`) to honor this pin. Both the CI test job and release-build matrix run `rustup show` after checkout to install/select that toolchain; release builds then add their matrix target. Update the pin explicitly when upgrading Rust so local and CI lint rules stay aligned.
+
 | Resource/behavior | Current value |
 | --- | --- |
 | MCP call timeout | 60 s default, clamped to 100 ms–10 min |

@@ -578,10 +578,8 @@ fn contract(ns: &str, full: &str, f: &Map<String, Value>, out: &mut Vec<Issue>) 
 }
 fn type_fields(f: &Map<String, Value>) -> Vec<&str> {
     let mut v = Vec::new();
-    for k in ["yields"] {
-        if let Some(x) = f.get(k).and_then(Value::as_str) {
-            v.push(x)
-        }
+    if let Some(x) = f.get("yields").and_then(Value::as_str) {
+        v.push(x)
     }
     for p in f
         .get("params")
