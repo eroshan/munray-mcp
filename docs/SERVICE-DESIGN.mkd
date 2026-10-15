@@ -6,6 +6,8 @@ Service packs are **external user-managed inputs** loaded from the configured se
 
 > **Trust boundary:** a pack is trusted host code, not a sandboxed plugin. Install and run only packs you trust. Pack code can access host-facing Lua facilities while it is loaded; never fetch, generate, or execute untrusted Lua as part of a pack.
 
+MCP user scripts have a restricted environment distinct from trusted pack code. Their `os` table contains only `os.date(format?, time?)`, available in both read-only and guarded calls with standard Lua semantics. For example, `os.date("!%Y-%m-%dT%H:%M:%SZ")` formats the current UTC datetime. All other `os` functions, including `time`, `getenv`, and `execute`, remain unavailable to user scripts. The table is session-local and is rebuilt after snippet save/delete; do not expose trusted library tables through public APIs.
+
 This is the complete authoring contract. [ARCHITECTURE.md](../ARCHITECTURE.md) describes core implementation and operational behavior, not pack-development requirements.
 
 ---

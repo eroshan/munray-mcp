@@ -55,6 +55,15 @@ struct SessionEnvironment {
     public_roots: HashSet<String>,
 }
 
+// Never clone these globals wholesale into the untrusted session environment.
+const SESSION_BLOCKED_GLOBALS: &[&str] = &[
+    "io", "os", "debug", "package", "require", "dofile", "loadfile", "load",
+];
+
+// Extend this allowlist to expose individual standard-library functions.
+// Each library is projected into a fresh table, without its metatable.
+const SESSION_LIBRARY_EXPORTS: &[(&str, &[&str])] = &[("os", &["date"])];
+
 pub struct LuaRuntime {
     lua: Lua,
     output: Arc<Mutex<String>>,
@@ -1152,10 +1161,10 @@ fn refresh_session_environment(
             || name == "sys"
             || name == "errutil"
             || name == "test"
-            || matches!(
-                name.as_str(),
-                "io" | "os" | "debug" | "package" | "require" | "dofile" | "loadfile" | "load"
-            )
+            || SESSION_BLOCKED_GLOBALS.contains(&name.as_str())
+            || SESSION_LIBRARY_EXPORTS
+                .iter()
+                .any(|(library, _)| *library == name)
         {
             continue;
         }
@@ -1177,13 +1186,30 @@ fn refresh_session_environment(
         environment.set(name, clone_public_value(lua, value, &mut seen)?)?;
     }
     environment.raw_set("_G", environment.clone())?;
-    for name in [
-        "io", "os", "debug", "package", "require", "dofile", "loadfile", "load",
-    ] {
+    for &name in SESSION_BLOCKED_GLOBALS {
         environment.raw_set(name, Value::Nil)?;
     }
+    project_session_libraries(lua, &environment)?;
     if let Some(session_environment) = holder.lock().as_mut() {
         session_environment.public_roots = current_roots;
+    }
+    Ok(())
+}
+
+fn project_session_libraries(lua: &Lua, environment: &mlua::Table) -> Result<()> {
+    let globals = lua.globals();
+    for &(library, functions) in SESSION_LIBRARY_EXPORTS {
+        let source = globals
+            .raw_get::<mlua::Table>(library)
+            .with_context(|| format!("Missing session library {library}"))?;
+        let projection = lua.create_table()?;
+        for &name in functions {
+            let function = source
+                .raw_get::<mlua::Function>(name)
+                .with_context(|| format!("Invalid session library export {library}.{name}"))?;
+            projection.raw_set(name, function)?;
+        }
+        environment.raw_set(library, projection)?;
     }
     Ok(())
 }

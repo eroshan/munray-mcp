@@ -31,7 +31,7 @@ The current implementation has two materially different code classes:
 | Embedded core Lua | Trusted. Loaded from the binary with `include_str!`. |
 | Filesystem service packs | **Fully trusted host code.** They execute in the trusted Lua global environment. The VM is created with mlua's safe standard libraries, so native/C module loading is unavailable. |
 | Persisted Lua snippets | Trusted after human-approved installation. They compile and execute in the trusted Lua global environment. |
-| MCP session scripts | Untrusted. Each execution uses a separate allowlisted Lua `_ENV` containing pure-Lua helpers and cloned public API tables only; it has no `sys`, `io`, `os`, `debug`, `package`, `require`, `dofile`, `loadfile`, or `load`. |
+| MCP session scripts | Untrusted. Each execution uses a separate allowlisted Lua `_ENV` containing pure-Lua helpers, cloned public API tables, and explicitly projected standard-library functions. Its `os` table contains only `date`; it has no `sys`, `io`, `debug`, `package`, `require`, `dofile`, `loadfile`, or `load`. |
 | CLI user scripts | Local trusted code. Direct raw access remains enabled. |
 
 This distinction is important: service packs can use host-facing Lua facilities independently of `sys.*`, so the CLI allowlist and VFS do not sandbox a malicious service pack.
@@ -155,7 +155,7 @@ The durable store is shared between MCP sessions. Trusted Lua globals, function 
 5. Execute the embedded modular trusted preload code, then load trusted service packs and restored snippets.
 6. Install Rust-created schema wrappers, each capturing immutable operation policy and original Lua function. Their RAII raw scope authorizes nested raw calls and iterator steps.
 7. Disable bootstrap authorization and retain direct raw access only for local CLI/test runtimes.
-8. For MCP runtimes, build a separate session `_ENV` containing pure Lua facilities and cloned public API tables. Raw/internal globals (including `sys`, regardless of schema metadata) and unsafe standard libraries are omitted.
+8. For MCP runtimes, build a separate session `_ENV` containing pure Lua facilities, cloned public API tables, and allowlisted standard-library projections (`os.date` only). Raw/internal globals (including `sys`, regardless of schema metadata) and other host-facing standard-library functions are omitted.
 
 The modular preload files are the sole Lua bootstrap implementation. Their explicit load order in `runtime.rs` is the dependency order between core Lua namespaces.
 
@@ -279,7 +279,11 @@ There is no Lua wrapper installer or Lua raw-context counter.
 
 ### 10.3 Standard-library restrictions
 
-Non-test VMs use mlua's safe standard-library constructor, which prevents native/C module loading. MCP session chunks execute with a separate allowlisted `_ENV`; it contains pure Lua primitives and cloned public API tables, but not host-facing standard libraries, raw globals, package loading, or `load`/file loaders. Trusted core/service/snippet code remains in the trusted global environment.
+Non-test VMs use mlua's safe standard-library constructor, which prevents native/C module loading. MCP session chunks execute with a separate allowlisted `_ENV`; it contains pure Lua primitives, cloned public API tables, and explicitly projected standard-library functions, but not full host-facing standard libraries, raw globals, package loading, or `load`/file loaders.
+
+`SESSION_LIBRARY_EXPORTS` in `src/runtime.rs` is the declarative function-export allowlist. Currently, only `os.date(format?, time?)` is exposed, in both read-only and guarded execution, with standard Lua formatting, UTC (`!`), and table (`*t`) behavior. `os.time`, `os.clock`, `os.difftime`, `os.getenv`, `os.execute`, `os.exit`, `os.remove`, `os.rename`, `os.setlocale`, and `os.tmpname` remain unavailable. Every environment refresh clears blocked globals, then creates fresh projection tables containing only the named functions, without source metatables. Missing/non-function exports fail runtime construction or refresh. Projection libraries are excluded from automatic public-table cloning, even if they have schema metadata. Session table mutation cannot change trusted library tables; snippet save/delete refreshes reapply the same allowlist. Extending it requires adding function names to the policy, not new projection logic.
+
+Trusted core/service code retains its trusted global environment; this change does not alter CLI or service-test library access.
 
 This is a Lua-language boundary, not OS process isolation. Trusted service packs and approved snippets intentionally retain the safe VM's host-facing Lua facilities; architectural security must not treat them as contained to `sys.*` or the VFS.
 

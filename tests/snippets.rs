@@ -124,7 +124,7 @@ fn snippets_can_only_use_public_apis() {
 
     runtime
         .execute(
-            "assert(snippets.save({namespace='public_only',name='environment',code='function() return sys == nil and os == nil and io == nil end',schema_expr='{guarded=true}'}))",
+            "assert(snippets.save({namespace='public_only',name='environment',code='function() return sys == nil and os.getenv == nil and io == nil and os.date(\"!%Y\", 0) == \"1970\" end',schema_expr='{guarded=true}'}))",
             ExecutionMode::Guarded,
             "<test>",
         )

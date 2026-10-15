@@ -15,6 +15,13 @@ design documents.
 - A service pack is **trusted host code**, not a sandboxed plugin. Never fetch,
   generate, or execute untrusted Lua. Never log, print, return, or persist raw
   secrets.
+- MCP user scripts have a restricted environment distinct from trusted pack
+  code. Their session-local `os` table exposes only `os.date(format?, time?)`
+  with standard Lua semantics, in both read-only and guarded calls. For example,
+  `os.date("!%Y-%m-%dT%H:%M:%SZ")` formats the current UTC datetime. All other
+  `os` functions, including `time`, `getenv`, and `execute`, remain unavailable
+  to user scripts. Snippet save/delete rebuilds the table. Never expose trusted
+  library tables through public APIs.
 - Keep loading side-effect free. Do not make network calls, resolve credentials,
   or run commands while `src/init.lua` or another module is loading.
 - Public operations are stateless: pass identifiers, filters, configuration, and
