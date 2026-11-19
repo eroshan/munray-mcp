@@ -3,7 +3,15 @@
 Rust host for a persistent Lua runtime exposed through the
 official Rust MCP SDK.
 
+Development and CI use the exact Rust version pinned in `rust-toolchain.toml`
+(currently 1.99.0), including rustfmt and Clippy. Install
+[rustup](https://rust-lang.org/tools/install/) and ensure its command shims take
+precedence over standalone Rust installations in `PATH`. Rustup selects the
+pinned toolchain automatically inside this repository.
+
 ```sh
+# Install/verify the pinned toolchain and its components.
+rustup show
 cargo build --release
 
 # Pipe Lua directly to the CLI (there is intentionally no interactive REPL).
