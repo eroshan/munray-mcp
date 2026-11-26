@@ -79,7 +79,7 @@ impl Challenge {
 
 #[derive(Deserialize)]
 struct ResourceMetadata {
-    resource: Option<String>,
+    resource: String,
     #[serde(default)]
     authorization_servers: Vec<String>,
     #[serde(default)]
@@ -117,10 +117,20 @@ struct Token {
 #[derive(Serialize, Deserialize)]
 pub(super) struct Session {
     provider: Provider,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resource: Option<String>,
     registration: Registration,
     redirect: String,
     scopes: Vec<String>,
     token: Option<Token>,
+}
+
+impl Session {
+    fn resource<'a>(&'a self, endpoint: &'a Url) -> &'a str {
+        self.resource
+            .as_deref()
+            .unwrap_or_else(|| endpoint.as_str())
+    }
 }
 
 impl Auth {
@@ -271,7 +281,7 @@ impl Auth {
                     .append_pair("state", &state)
                     .append_pair("code_challenge", &proof)
                     .append_pair("code_challenge_method", "S256")
-                    .append_pair("resource", self.endpoint.as_str());
+                    .append_pair("resource", session.resource(&self.endpoint));
                 if !session.scopes.is_empty() {
                     query.append_pair("scope", &session.scopes.join(" "));
                 }
@@ -328,7 +338,7 @@ impl Auth {
         redirect: &str,
         challenge: &Challenge,
     ) -> Result<Session> {
-        let (provider, suggested) = self.discover(http, challenge).await?;
+        let (provider, resource, suggested) = self.discover(http, challenge).await?;
         ensure!(
             provider
                 .code_challenge_methods_supported
@@ -362,6 +372,7 @@ impl Auth {
             .await?;
         Ok(Session {
             provider,
+            resource: Some(resource),
             registration,
             redirect: redirect.to_owned(),
             scopes,
@@ -413,29 +424,44 @@ impl Auth {
         &self,
         http: &Client,
         challenge: &Challenge,
-    ) -> Result<(Provider, Vec<String>)> {
+    ) -> Result<(Provider, String, Vec<String>)> {
         let mut resource_urls = well_known(&self.endpoint, "oauth-protected-resource", false);
-        if let Some(url) = &challenge.metadata {
-            resource_urls.insert(0, self.provider_endpoint(url)?);
+        let root_url = resource_urls
+            .pop()
+            .context("missing root OAuth discovery URL")?;
+        if let Some(url) = challenge.metadata.as_deref()
+            && let Ok(url) = self.provider_endpoint(url)
+        {
+            resource_urls.insert(0, url);
         }
-        for url in resource_urls {
+        let root_resource = self.endpoint.origin().ascii_serialization();
+        let candidates = resource_urls
+            .into_iter()
+            .map(|url| (url, self.endpoint.as_str()))
+            .chain([(root_url, root_resource.as_str())]);
+        let mut resource_mismatch = false;
+        for (url, expected_resource) in candidates {
             let Some(resource) = discover_json::<ResourceMetadata>(http, url).await? else {
                 continue;
             };
-            if let Some(id) = resource.resource
-                && endpoint(&id)? != self.endpoint
-            {
-                bail!("OAuth resource metadata identifies a different MCP endpoint");
+            if resource.resource != expected_resource {
+                resource_mismatch = true;
+                continue;
             }
             for issuer in resource.authorization_servers {
                 let issuer = self.provider_endpoint(&issuer)?;
                 if let Some(provider) = self.discover_provider(http, &issuer, true).await? {
-                    return Ok((provider, resource.scopes_supported));
+                    return Ok((provider, resource.resource, resource.scopes_supported));
                 }
             }
         }
         if let Some(provider) = self.discover_provider(http, &self.endpoint, false).await? {
-            return Ok((provider, Vec::new()));
+            return Ok((provider, self.endpoint.to_string(), Vec::new()));
+        }
+        if resource_mismatch {
+            bail!(
+                "OAuth resource metadata does not match the configured MCP endpoint or its root resource"
+            );
         }
         bail!("MCP server did not advertise a usable OAuth provider")
     }
@@ -491,7 +517,7 @@ impl Auth {
                 .filter(|secret| !secret.is_empty()),
         };
         let mut form = params.to_vec();
-        form.push(("resource", self.endpoint.as_str()));
+        form.push(("resource", session.resource(&self.endpoint)));
         let mut request = http.post(self.provider_endpoint(&session.provider.token_endpoint)?);
         if let Some(secret) = &client_secret {
             let basic = match registration.token_endpoint_auth_method.as_deref() {

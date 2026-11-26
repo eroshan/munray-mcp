@@ -726,7 +726,22 @@ fn parameters(target: &str) -> HashMap<String, String> {
 #[test]
 #[ignore = "requires loopback TCP permissions unavailable in the managed sandbox"]
 fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
-    for preregistered in [false, true] {
+    enum RejectedResource {
+        Unrelated,
+        Null,
+        Missing,
+        DotSegments,
+    }
+
+    for (preregistered, rejected_resource) in [
+        (false, None),
+        (true, None),
+        (true, Some(RejectedResource::Unrelated)),
+        (true, Some(RejectedResource::Null)),
+        (true, Some(RejectedResource::Missing)),
+        (true, Some(RejectedResource::DotSegments)),
+    ] {
+        let root_fallback = rejected_resource.is_some();
         let events = (!preregistered).then(LegacyEvents::default);
         let registrations = Arc::new(AtomicUsize::new(0));
         let recorded_registrations = Arc::clone(&registrations);
@@ -737,14 +752,31 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
         let proofs = Arc::new(Mutex::new(HashMap::new()));
         let deny_extra_scope = Arc::new(AtomicBool::new(false));
         let deny_scope = Arc::clone(&deny_extra_scope);
+        let rejected_issuer_requests = Arc::new(AtomicUsize::new(0));
+        let issuer_requests = Arc::clone(&rejected_issuer_requests);
         let server = Server::new(move |stream, request, origin| {
+            if request.target.contains("unexpected-issuer") {
+                issuer_requests.fetch_add(1, Ordering::Relaxed);
+                respond(stream, "404 Not Found", &[], "");
+                return;
+            }
+            let oauth_resource = if root_fallback {
+                origin.to_owned()
+            } else {
+                format!("{origin}/mcp")
+            };
             match request.target.split('?').next().unwrap() {
                 "/mcp" | "/messages" => {
                     if !request
                         .auth()
                         .is_some_and(|auth| auth.starts_with("Bearer token-"))
                     {
-                        let challenge = format!("Bearer resource_metadata=\"{origin}/protected\"");
+                        let metadata = if root_fallback {
+                            "/.well-known/oauth-protected-resource"
+                        } else {
+                            "/protected"
+                        };
+                        let challenge = format!("Bearer resource_metadata=\"{origin}{metadata}\"");
                         respond(
                             stream,
                             "401 Unauthorized",
@@ -810,6 +842,25 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
                     stream,
                     &json!({"resource":format!("{origin}/mcp"),"authorization_servers":[origin],"scopes_supported":["read"]}),
                 ),
+                "/.well-known/oauth-protected-resource/mcp" if root_fallback => {
+                    let mut metadata =
+                        json!({"authorization_servers": [format!("{origin}/unexpected-issuer")]});
+                    match rejected_resource.as_ref().unwrap() {
+                        RejectedResource::Unrelated => {
+                            metadata["resource"] = json!("https://unrelated.example/mcp")
+                        }
+                        RejectedResource::Null => metadata["resource"] = Value::Null,
+                        RejectedResource::Missing => (),
+                        RejectedResource::DotSegments => {
+                            metadata["resource"] = json!(format!("{origin}/noncanonical/../mcp"))
+                        }
+                    }
+                    respond_json(stream, &metadata);
+                }
+                "/.well-known/oauth-protected-resource" if root_fallback => respond_json(
+                    stream,
+                    &json!({"resource":origin,"authorization_servers":[origin],"scopes_supported":["read"]}),
+                ),
                 "/.well-known/oauth-authorization-server" => respond_json(
                     stream,
                     &json!({
@@ -830,7 +881,7 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
                 "/authorize" => {
                     let query = parameters(&request.target);
                     assert_eq!(query["client_id"], "test-client");
-                    assert_eq!(query["resource"], format!("{origin}/mcp"));
+                    assert_eq!(query["resource"], oauth_resource);
                     assert_eq!(query["code_challenge_method"], "S256");
                     let count = recorded_authorizations.fetch_add(1, Ordering::Relaxed) + 1;
                     if deny_scope.load(Ordering::Relaxed) {
@@ -864,6 +915,7 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
                     let form =
                         parameters(&format!("?{}", String::from_utf8(request.body).unwrap()));
                     assert_eq!(form["client_id"], "test-client");
+                    assert_eq!(form["resource"], oauth_resource);
                     assert_eq!(
                         form.get("client_secret").map(String::as_str),
                         preregistered.then_some("local-secret")
@@ -941,6 +993,23 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
             bootstrap.authorize();
         }
         bootstrap.finish();
+        assert_eq!(
+            rejected_issuer_requests.load(Ordering::Relaxed),
+            0,
+            "a rejected resource document was used to discover its issuer"
+        );
+
+        if !preregistered {
+            let session_file = fs::read_dir(&auth_dir)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .find(|path| path.extension().is_some_and(|ext| ext == "json"))
+                .unwrap();
+            let mut old_session: Value =
+                serde_json::from_slice(&fs::read(&session_file).unwrap()).unwrap();
+            old_session.as_object_mut().unwrap().remove("resource");
+            fs::write(session_file, serde_json::to_vec(&old_session).unwrap()).unwrap();
+        }
 
         let script = temp.path().join("read.lua");
         fs::write(&script, r#"local result, err = oauth_demo.read(); assert(result, err and err.message); return result.content[1].text"#).unwrap();

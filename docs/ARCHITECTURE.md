@@ -358,7 +358,12 @@ OAuth accesses sessions through the `CredentialStore` interface. A store
 session holds exclusive access while OAuth reads, refreshes, or replaces its
 credentials. The JSON implementation stores one file per integration and
 connection settings outside the service directory and uses a file lock to
-coordinate calls across processes. Stored credentials are replaced only after
+coordinate calls across processes. OAuth discovery requires a resource string
+that exactly matches the MCP endpoint for challenge and endpoint-specific
+metadata, or the origin for root metadata. Candidates with invalid or
+mismatched resources are skipped. The session retains the accepted resource for OAuth
+requests while MCP requests use the configured endpoint.
+Stored credentials are replaced only after
 a successful authorization, so cancelling a scope upgrade preserves the old
 session. A login started by a Lua call in the
 long-running MCP server can complete after that call's deadline. The client
