@@ -179,47 +179,7 @@ impl LuaRuntime {
         store_path: Option<&Path>,
         allow_direct_raw: bool,
     ) -> Result<Self> {
-        let lua = if test_runtime {
-            // Service tests are trusted and intentionally retain the complete
-            // standard library, including debug/dofile helpers used by fixtures.
-            unsafe { Lua::unsafe_new() }
-        } else {
-            // The VM itself is safe: unsafe Lua libraries and C module loading
-            // are unavailable even to trusted service code.
-            Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default())?
-        };
-        let vfs = Arc::new(
-            tempfile::Builder::new()
-                .prefix(concat!(env!("CARGO_PKG_NAME"), "-vfs-"))
-                .tempdir()?,
-        );
-        let exposures = Arc::new(Mutex::new(Vec::new()));
-        let blobs = crate::blob::BlobStore::new();
-        let ingest = crate::ingest::IngestStore::new(Arc::clone(&vfs));
-        let store = crate::storage::Store::open(store_path)?;
-        let mut runtime = Self {
-            lua,
-            output: Arc::new(Mutex::new(String::new())),
-            mode: Arc::new(Mutex::new(ExecutionMode::ReadOnly)),
-            store: store.clone(),
-            allowed_cli: Arc::new(Mutex::new(Vec::new())),
-            secret_lifetime: Arc::new(std::sync::atomic::AtomicBool::new(true)),
-            raw_authorization: Arc::new(Mutex::new(RawAuthorization {
-                bootstrap: true,
-                direct_allowed: false,
-                depth: 0,
-            })),
-            function_registry: Arc::new(Mutex::new(HashMap::new())),
-            metric_buffer: Arc::new(Mutex::new(HashMap::new())),
-            session_env: Arc::new(Mutex::new(None)),
-            _vfs: Arc::clone(&vfs),
-            _exposures: Arc::clone(&exposures),
-            _blobs: blobs.clone(),
-            ingest: ingest.clone(),
-            tasks: crate::tasks::Manager::new(),
-            loaded_services: crate::services::LoadReport::default(),
-        };
-        runtime.install_core(vfs, exposures, blobs, ingest, store)?;
+        let mut runtime = Self::build_core(test_runtime, store_path)?;
         if let Some(path) = service_dir {
             runtime.loaded_services =
                 crate::services::load_named(&runtime.lua, path, selected_service)?;
@@ -246,6 +206,60 @@ impl LuaRuntime {
         crate::storage::restore_lua_snippets(&runtime.lua, &runtime.store, snippet_environment)?;
         // Restored snippets add public functions after the first pass.
         runtime.install_security_wrappers()?;
+        Ok(runtime)
+    }
+
+    #[cfg(feature = "mcp-client")]
+    pub(crate) fn with_trusted_bootstrap<T>(
+        store_path: Option<&Path>,
+        evaluate: impl FnOnce(&Lua) -> Result<T>,
+    ) -> Result<T> {
+        let runtime = Self::build_core(false, store_path)?;
+        evaluate(&runtime.lua)
+    }
+
+    fn build_core(test_runtime: bool, store_path: Option<&Path>) -> Result<Self> {
+        let lua = if test_runtime {
+            // Service tests are trusted and intentionally retain the complete
+            // standard library, including debug/dofile helpers used by fixtures.
+            unsafe { Lua::unsafe_new() }
+        } else {
+            // The VM itself is safe: unsafe Lua libraries and C module loading
+            // are unavailable even to trusted service code.
+            Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default())?
+        };
+        let vfs = Arc::new(
+            tempfile::Builder::new()
+                .prefix(concat!(env!("CARGO_PKG_NAME"), "-vfs-"))
+                .tempdir()?,
+        );
+        let exposures = Arc::new(Mutex::new(Vec::new()));
+        let blobs = crate::blob::BlobStore::new();
+        let ingest = crate::ingest::IngestStore::new(Arc::clone(&vfs));
+        let store = crate::storage::Store::open(store_path)?;
+        let runtime = Self {
+            lua,
+            output: Arc::new(Mutex::new(String::new())),
+            mode: Arc::new(Mutex::new(ExecutionMode::ReadOnly)),
+            store: store.clone(),
+            allowed_cli: Arc::new(Mutex::new(Vec::new())),
+            secret_lifetime: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            raw_authorization: Arc::new(Mutex::new(RawAuthorization {
+                bootstrap: true,
+                direct_allowed: false,
+                depth: 0,
+            })),
+            function_registry: Arc::new(Mutex::new(HashMap::new())),
+            metric_buffer: Arc::new(Mutex::new(HashMap::new())),
+            session_env: Arc::new(Mutex::new(None)),
+            _vfs: Arc::clone(&vfs),
+            _exposures: Arc::clone(&exposures),
+            _blobs: blobs.clone(),
+            ingest: ingest.clone(),
+            tasks: crate::tasks::Manager::new(),
+            loaded_services: crate::services::LoadReport::default(),
+        };
+        runtime.install_core(vfs, exposures, blobs, ingest, store)?;
         Ok(runtime)
     }
 
@@ -434,6 +448,8 @@ impl LuaRuntime {
         )?;
         crate::tasks::register(&self.lua, &raw_table, Arc::clone(&self.allowed_cli), tasks)?;
         crate::vfs::register(&self.lua, &raw_table, vfs, exposures, blobs)?;
+        #[cfg(feature = "mcp-client")]
+        crate::mcp_client::register(&self.lua, &raw_table)?;
         globals.set("sys", raw)?;
         self.install_raw_guards()?;
 
@@ -1317,6 +1333,22 @@ fn normalize_empty_object_as_array(object: &mut JsonMap<String, JsonValue>, key:
 }
 
 fn lua_value_to_json(value: Value) -> Result<JsonValue> {
+    lua_value_to_json_with_limit(value, usize::MAX)
+}
+
+pub(crate) fn lua_value_to_json_with_limit(
+    value: Value,
+    mut remaining: usize,
+) -> Result<JsonValue> {
+    encode_lua_value(value, 0, &mut remaining)
+}
+
+fn encode_lua_value(value: Value, depth: usize, remaining: &mut usize) -> Result<JsonValue> {
+    anyhow::ensure!(
+        depth <= 128 && *remaining > 0,
+        "Lua value exceeds JSON encoding limits"
+    );
+    *remaining -= 1;
     match value {
         Value::Nil => Ok(JsonValue::Null),
         Value::Boolean(value) => Ok(JsonValue::Bool(value)),
@@ -1325,26 +1357,36 @@ fn lua_value_to_json(value: Value) -> Result<JsonValue> {
             .map(JsonValue::Number)
             .ok_or_else(|| anyhow::anyhow!("cannot encode non-finite number as JSON")),
         Value::String(value) => Ok(JsonValue::String(value.to_string_lossy().to_string())),
-        Value::Table(table) => lua_table_to_json(table),
+        Value::Table(table) => lua_table_to_json(table, depth + 1, remaining),
         Value::LightUserData(data) if data.0.is_null() => Ok(JsonValue::Null),
         other => bail!("cannot encode Lua {} as JSON", other.type_name()),
     }
 }
 
-fn lua_table_to_json(table: mlua::Table) -> Result<JsonValue> {
+fn lua_table_to_json(table: mlua::Table, depth: usize, remaining: &mut usize) -> Result<JsonValue> {
     if is_marked_json_array(&table) {
         let len = table
             .raw_get::<Option<usize>>("n")?
             .unwrap_or_else(|| table.raw_len());
-        let mut values = Vec::with_capacity(len);
+        anyhow::ensure!(len <= *remaining, "Lua array exceeds JSON encoding limits");
+        let mut values = Vec::new();
+        values.try_reserve(len)?;
         for index in 1..=len {
-            values.push(lua_value_to_json(table.raw_get::<Value>(index)?)?);
+            values.push(encode_lua_value(
+                table.raw_get::<Value>(index)?,
+                depth,
+                remaining,
+            )?);
         }
         return Ok(JsonValue::Array(values));
     }
 
     let mut entries = Vec::new();
     for pair in table.pairs::<Value, Value>() {
+        anyhow::ensure!(
+            entries.len() < *remaining,
+            "Lua table exceeds JSON encoding limits"
+        );
         entries.push(pair?);
     }
 
@@ -1355,14 +1397,21 @@ fn lua_table_to_json(table: mlua::Table) -> Result<JsonValue> {
     if let Some(len) = contiguous_array_len(&entries) {
         let mut values = Vec::with_capacity(len);
         for index in 1..=len {
-            values.push(lua_value_to_json(table.raw_get::<Value>(index)?)?);
+            values.push(encode_lua_value(
+                table.raw_get::<Value>(index)?,
+                depth,
+                remaining,
+            )?);
         }
         return Ok(JsonValue::Array(values));
     }
 
     let mut object = JsonMap::new();
     for (key, value) in entries {
-        object.insert(lua_key_to_json_object_key(key)?, lua_value_to_json(value)?);
+        object.insert(
+            lua_key_to_json_object_key(key)?,
+            encode_lua_value(value, depth, remaining)?,
+        );
     }
     Ok(JsonValue::Object(object))
 }
@@ -1407,7 +1456,7 @@ fn lua_key_to_json_object_key(key: Value) -> Result<String> {
     }
 }
 
-fn json_value_to_lua(lua: &Lua, value: &JsonValue) -> mlua::Result<Value> {
+pub(crate) fn json_value_to_lua(lua: &Lua, value: &JsonValue) -> mlua::Result<Value> {
     match value {
         JsonValue::Null => Ok(Value::NULL),
         JsonValue::Bool(value) => Ok(Value::Boolean(*value)),

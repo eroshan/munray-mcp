@@ -74,6 +74,12 @@ const NAMESPACES: &[NamespaceMeta] = &[
         summary: "Durable key-value storage",
         description: "Core raw durable storage. Service packs should normally use the schema-backed kv namespace with service-specific keys and expiry where appropriate.",
     },
+    #[cfg(feature = "mcp-client")]
+    NamespaceMeta {
+        path: "sys.mcp",
+        summary: "Generated remote MCP integrations",
+        description: "Register the Lua functions and schema of a generated remote MCP service pack from its local catalog and policy.",
+    },
     NamespaceMeta {
         path: "sys.secrets",
         summary: "Secret references",
@@ -109,6 +115,41 @@ const NAMESPACES: &[NamespaceMeta] = &[
 // This is the machine-readable metadata used by `sys list`. Reflection below
 // remains authoritative for actual availability; tests enforce path parity.
 const FUNCTIONS: &[FunctionMeta] = &[
+    #[cfg(feature = "mcp-client")]
+    sys_fn!(
+        "sys.mcp",
+        "config",
+        "config(directory string) → (config|nil, err)",
+        "Evaluate the generated pack's config.lua with the trusted Lua APIs."
+    ),
+    #[cfg(feature = "mcp-client")]
+    sys_fn!(
+        "sys.mcp",
+        "auth",
+        "auth(connection table, integration_id string?) → (McpAuthRef|nil, err)",
+        "Validate local connection settings and create an opaque authorization reference. OAuth and secret resolution occur on demand."
+    ),
+    #[cfg(feature = "mcp-client")]
+    sys_fn!(
+        "sys.mcp",
+        "tool_call",
+        "tool_call(auth McpAuthRef, tool string, args table?) → (result|nil, err)",
+        "Call an external MCP tool by its original name using an authorization reference."
+    ),
+    #[cfg(feature = "mcp-client")]
+    sys_fn!(
+        "sys.mcp",
+        "catalog",
+        "catalog(directory string) → (catalog|nil, err)",
+        "Read the local tool map and integration ID for a generated service pack."
+    ),
+    #[cfg(feature = "mcp-client")]
+    sys_fn!(
+        "sys.mcp",
+        "load",
+        "load(namespace string, directory string) → (true|nil, err)",
+        "Load a service pack generated with the original catalog format."
+    ),
     sys_fn!(
         "sys",
         "exec_mode",

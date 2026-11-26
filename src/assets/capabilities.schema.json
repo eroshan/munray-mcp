@@ -100,6 +100,15 @@
           "items": { "$ref": "#/$defs/ReturnDef" }
         },
 
+        "input_schema": {
+          "type": "object",
+          "description": "JSON Schema of the argument object advertised by an external MCP tool."
+        },
+        "output_schema": {
+          "type": "object",
+          "description": "JSON Schema of structuredContent advertised by an external MCP tool."
+        },
+
         "async": { "$ref": "#/$defs/AsyncDef" },
 
         "examples": {

@@ -51,6 +51,24 @@ design documents.
 
 ## Pack layout and load order
 
+If this pack contains `mcp-catalog.json`, it was generated from an external
+MCP server. Edit `config.lua` to set the URL and authorization under
+`connection` and enable, disable, or remove entries under `tools` by their
+original MCP names. The entrypoint builds the Lua schema and calls
+`sys.mcp.auth` and `sys.mcp.tool_call` explicitly. Use `guarded = false` for tools explicitly allowed in
+read-only Lua scripts. Refresh definitions with `munray svc refresh <name>`,
+then create a new Lua session to load the catalog and policy. New tools appear
+after you add their policy entries.
+
+The config can use trusted core Lua APIs such as `json.decode` and `sys.*`.
+Refresh evaluates it without loading other service packs and uses the normal
+store path resolution for persistent values read through `kv.get`.
+
+Generated functions accept an argument table. Use `schema("<name>")` for the
+Lua names and original `input_schema` and optional `output_schema`. The
+returned `result` contains MCP `content` and any `structuredContent`. Keep
+the generated entrypoint and keep OAuth credentials outside the pack.
+
 A bootstrapped pack has this layout:
 
 ```text

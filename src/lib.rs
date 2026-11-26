@@ -5,6 +5,8 @@ mod ingest;
 pub mod ipc;
 pub mod logging;
 pub mod mcp;
+#[cfg(feature = "mcp-client")]
+pub mod mcp_client;
 mod process;
 pub mod runtime;
 mod secrets;
