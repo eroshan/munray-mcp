@@ -605,6 +605,8 @@ function schema(namespace)
 			guarded = is_guarded(fn),
 			params = fn.params,
 			returns_typed = fn.returns_typed or {},
+			input_schema = fn.input_schema,
+			output_schema = fn.output_schema,
 			yields = fn.yields,
 			async = fn.async,
 		}

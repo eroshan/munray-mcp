@@ -86,10 +86,17 @@ pub fn load_named(
         for path in &source_files {
             let source = fs::read_to_string(path)
                 .with_context(|| format!("cannot read service module {}", path.display()))?;
-            lua.load(&source)
-                .set_name(path.to_string_lossy())
-                .exec()
-                .with_context(|| format!("failed to load service module {}", path.display()))?;
+            let chunk = lua.load(&source).set_name(path.to_string_lossy());
+            #[cfg(feature = "mcp-client")]
+            let result =
+                if path == &entrypoint && directory.join(crate::mcp_client::MANIFEST).is_file() {
+                    chunk.call::<()>((name.as_str(), directory.to_string_lossy().as_ref()))
+                } else {
+                    chunk.exec()
+                };
+            #[cfg(not(feature = "mcp-client"))]
+            let result = chunk.exec();
+            result.with_context(|| format!("failed to load service module {}", path.display()))?;
         }
 
         let examples_dir = directory.join("examples");

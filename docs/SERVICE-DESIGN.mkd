@@ -38,6 +38,39 @@ munray svc bootstrap <service> --svc-dir <SVC_DIR>
 
 The generated source, example, capability test, and `.agents/skills/munray-service-pack/SKILL.md` are the canonical common-pack starting point. The skill is a self-contained, agent-neutral guide for autonomous service development; it directs agents to use `munray sys list --format markdown` as the installed-version reference for raw primitives rather than requiring core source access. The generated files and their inline comments cover the layout, load order, namespace/schema setup, private helpers, raw-primitive capture, CLI allowlisting, secret handling, guarded mutations, iterators, and the required next steps. Replace every `<...>` placeholder and the `NOT_IMPLEMENTED` starter operation before using the pack.
 
+### Packs generated from an external MCP server
+
+Use `munray svc bootstrap <name> --mcp-url <url>` or
+`munray svc bootstrap <name> --config <file> --server <entry>`.
+Choose a namespace unoccupied by the Lua runtime and installed packs.
+Bootstrap checks it before contacting the remote MCP server.
+The generated entrypoint loads `mcp-catalog.json` and `config.lua` at runtime
+creation. The config contains the remote URL and connection settings in
+`connection`. Its `tools` table maps original MCP tool names to `enabled`
+and `guarded` flags. Only enabled entries present in the catalog are exported, and generated
+entries start guarded. `munray svc refresh <name>` updates the catalog and
+prints policy entries for new tools while preserving the existing policy file.
+Both loading and refresh evaluate the config with trusted core Lua APIs.
+Refresh uses the normal store path resolution. Use the same configured store
+for both commands if the config reads persistent values with `kv.get`.
+Refresh runs without loading service packs, so the config can use core
+functions such as `json.decode` and `sys.*` without depending on another
+pack's globals.
+
+Generated functions accept an argument table and return `(result, err)`
+using `core.result`. On success `result.content` contains MCP content
+items and `result.structuredContent` contains any structured output.
+The descriptor's `input_schema` and optional `output_schema` expose the
+advertised JSON schemas through `schema(name)`. OAuth credentials remain in
+Munray's credential directory. The trusted Lua entrypoint calls
+`sys.mcp.auth(config.connection, integration_id)` and builds its functions
+and schemas from `sys.mcp.catalog(directory)`. Each wrapper calls
+`sys.mcp.tool_call(auth, remote_name, args)`. A trusted service can use
+`auth` and `tool_call` independently of the catalog. The connection accepts
+`url`, `transport`, `tokenEnv`, `oauth`, and `noBrowser`. Supply an
+integration UUID to keep its OAuth session separate from other callers with
+the same connection settings.
+
 ---
 
 ## 3. API Design Rules

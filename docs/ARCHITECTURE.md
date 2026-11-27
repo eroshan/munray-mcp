@@ -86,6 +86,8 @@ A `LuaRuntime` uses `mlua` with the `send` feature, but a session serializes acc
 | `svc validate [<name>]` | Constructs a temporary runtime, forces schema discovery and validation, and reports the service-pack directories actually loaded. With a name, loads and validates only that pack. Nested `init.lua` files are reported as modules, not packs. |
 | `svc install <repository-url>` | Clone an HTTPS or SSH (`git@host:path`) service repository into the configured service directory, using the repository basename (without `.git`) as its directory name. A `<package-name>-` basename prefix is removed, so `munray-github.git` installs as `github`. Git authentication and transport configuration remain delegated to the local Git client. |
 | `svc bootstrap <name>` | Create the schema-valid service-pack skeleton and self-contained `.agents/skills/munray-service-pack/SKILL.md` from compiled assets in the configured service directory. Refuses to overwrite an existing pack unless `--force` is supplied. `svc bootstrap [<name>] --update` replaces only the generated skill for one pack, or for every pack when the name is omitted. |
+| `svc bootstrap <name> --mcp-url <url>` | Scan a remote MCP server and create a Lua service pack in a new directory. `--config <path> --server <name>` imports a remote connection from a JSON `mcpServers` entry. |
+| `svc refresh <name>` | Rescan the configured remote MCP server and atomically update the catalog of a generated pack, preserving its Lua policy. |
 | `svc list` | List service-pack directories with a `src` directory in the configured service directory. |
 | `svc uninstall <name> --force` | Remove a service-pack directory after explicit confirmation. `svc delete` and `svc remove` are aliases. |
 | `svc test [<name>]` | Find Lua files below any `tests` path and execute each in a new read-only test runtime. With a name, runs only that pack's tests and loads only that pack. Generated `integraion_guarded_tests.lua` files run in guarded mode only when `MUNRAY_RUN_GUARDED=1`; otherwise their skip marker is reported as `SKIPPED`. |
@@ -108,7 +110,7 @@ The store path is resolved from `--store-path`, `MUNRAY_MCP_STORE_PATH`, or `<da
 
 Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. The package/binary name and default data-directory leaf derive from Cargo package metadata; the canonical product name is in `Cargo.toml`.
 
-`main.rs` resolves a store path before routing any command. Consequently, even commands that do not logically need persistence require either a store override or a usable `HOME`.
+The CLI handles `svc` subcommands before requiring a persistent store path for other commands. Remote MCP bootstrap and `svc refresh` use the resolved store path when available and fall back to an in-memory store when no path can be resolved.
 
 ## 4. Source map
 
@@ -116,6 +118,7 @@ Telemetry is disabled unless `--logs-dir` or `MUNRAY_MCP_LOGS_DIR` is supplied. 
 | --- | --- | --- |
 | CLI/configuration | `src/main.rs` | Argument parsing, path resolution, command routing, service test runner. |
 | MCP server | `src/mcp.rs` | Tools, elicitation, sessions, ordering, timeout selection, response encoding. |
+| External MCP client | `src/mcp_client/` | MCP transports, OAuth, catalog discovery and refresh, and generated Lua wrappers. |
 | Lua runtime | `src/runtime.rs` | VM construction, raw registration, preload, execution, conversion, restrictions. |
 | Durable storage | `src/storage.rs` | SQLite lifecycle, KV expiry, metrics, snippets, schema initialization, and Lua storage bridges. |
 | Service loading | `src/services.rs` | Deterministic source/example discovery and execution, with a report of loaded packs and nested modules. |
@@ -211,10 +214,11 @@ Independent sessions execute concurrently. Same-session calls reserve a monotoni
 
 If the client advertises form elicitation, the guarded tool requests an `Approve`/`Reject` decision before execution. Decline, cancel, or any accepted value other than `Approve` returns a `REJECTED_BY_GUARD` payload and does not execute code.
 
-Current fallback is permissive:
-
-- if the client does not advertise form elicitation, execution proceeds; and
-- if an advertised elicitation request fails, execution also proceeds.
+If an advertised form elicitation request fails, the call returns
+`REJECTED_BY_GUARD`. When form elicitation is unavailable, the call returns
+`ELICITATION_UNAVAILABLE` unless the server was started with
+`--delegate-guarded-approval-to-harness`. With that flag the guarded tool
+executes and the harness is responsible for confirming or restricting its calls.
 
 ### 8.5 Response shape
 
@@ -324,6 +328,47 @@ HTTP behavior includes:
 HTTP pagination is lazy and supports `page`, `offset`, opaque `token`, and same-origin cursor-link modes. Cursor links must preserve scheme, host, port, and configured base-path prefix.
 
 GraphQL uses HTTP POST and supports data or envelope response mode plus cursor/offset pagination. The GraphQL envelope is the decoded GraphQL response body; callers requiring transport metadata can use HTTP's `http_envelope` response mode. A non-empty GraphQL `errors` array becomes `GRAPHQL_ERROR` whose message retains the returned errors and partial data.
+
+### Remote MCP integrations
+
+The default `mcp-client` Cargo feature adds a separate client used by catalog
+scans and generated tool wrappers. The client supports Streamable HTTP and
+legacy SSE. It establishes an MCP session for each scan or tool call.
+Before scanning for a new pack, bootstrap rejects names occupied by Lua
+globals from the core runtime or installed service packs. It loads installed
+packs for this check using the same optional store path as catalog refresh.
+The configured MCP origin controls where bearer credentials can be sent,
+including legacy SSE message endpoints and redirects.
+
+The generated Lua entrypoint reads the local `mcp-catalog.json` and evaluates
+`config.lua` through `sys.mcp.config` during pack loading. Catalog refresh
+evaluates the same configuration with the trusted core Lua APIs initialized
+through the service runtime's bootstrap. It uses the normal store path
+resolution for persistent APIs such as `kv.get`. With no configured path or
+data home, it uses an in-memory store. Refresh does not load other service
+packs. The generated entrypoint itself performs no network requests. The
+Lua template builds one schema-backed function per enabled catalog entry.
+It uses `sys.mcp.auth` for the configured connection and `sys.mcp.tool_call`
+for each outbound tool invocation. The
+normal execution-mode gate applies before the function can start a network
+request. Tool arguments are JSON objects and results preserve MCP content and
+structured content. Calls inherit the active Lua deadline.
+
+OAuth accesses sessions through the `CredentialStore` interface. A store
+session holds exclusive access while OAuth reads, refreshes, or replaces its
+credentials. The JSON implementation stores one file per integration and
+connection settings outside the service directory and uses a file lock to
+coordinate calls across processes. OAuth discovery requires a resource string
+that exactly matches the MCP endpoint for challenge and endpoint-specific
+metadata, or the origin for root metadata. Candidates with invalid or
+mismatched resources are skipped. The session retains the accepted resource for OAuth
+requests while MCP requests use the configured endpoint.
+Stored credentials are replaced only after
+a successful authorization, so cancelling a scope upgrade preserves the old
+session. A login started by a Lua call in the
+long-running MCP server can complete after that call's deadline. The client
+does not replay a dispatched tool call after an authorization rejection or a
+transport failure.
 
 ### 11.4 Background tasks
 

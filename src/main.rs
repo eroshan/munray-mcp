@@ -15,6 +15,9 @@ use mcp_server::{
 };
 use rmcp::{ServiceExt, transport::stdio};
 
+#[cfg(feature = "mcp-client")]
+use mcp_server::mcp_client;
+
 const COMMAND_NAME: &str = env!("CARGO_PKG_NAME");
 
 #[derive(Parser)]
@@ -115,6 +118,18 @@ enum SvcCommand {
         /// Without a service name, update every service pack in the service directory.
         #[arg(long)]
         update: bool,
+        #[cfg(feature = "mcp-client")]
+        #[command(flatten)]
+        remote: Box<RemoteBootstrapArgs>,
+    },
+    /// Refresh the advertised catalog of a generated MCP service pack.
+    #[cfg(feature = "mcp-client")]
+    Refresh {
+        /// Directory name of the generated pack.
+        name: String,
+        /// Maximum scan time in seconds, including any OAuth login.
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=600))]
+        timeout: Option<u64>,
     },
     /// List installed service packs.
     List,
@@ -139,6 +154,117 @@ enum SvcCommand {
     },
 }
 
+#[cfg(feature = "mcp-client")]
+#[derive(clap::Args)]
+struct RemoteBootstrapArgs {
+    /// External MCP endpoint.
+    #[arg(long, conflicts_with_all = ["config", "update", "force"])]
+    mcp_url: Option<String>,
+    /// Import a remote server from a JSON mcpServers configuration.
+    #[arg(long, requires = "server", conflicts_with_all = ["update", "force"])]
+    config: Option<PathBuf>,
+    /// Entry to import from --config.
+    #[arg(long, requires = "config")]
+    server: Option<String>,
+    /// External MCP transport. Defaults to Streamable HTTP.
+    #[arg(long, value_enum)]
+    transport: Option<mcp_client::Transport>,
+    /// Read a bearer token from this environment variable.
+    #[arg(long)]
+    token_env: Option<String>,
+    /// Enable OAuth with PKCE, or override imported OAuth with --oauth=false.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    oauth: Option<bool>,
+    /// OAuth client ID for providers that require pre-registration.
+    #[arg(long)]
+    oauth_client_id: Option<String>,
+    /// Read a pre-registered OAuth client's secret from this environment variable.
+    #[arg(long)]
+    oauth_client_secret_env: Option<String>,
+    /// Loopback callback URL registered with the OAuth provider.
+    #[arg(long)]
+    oauth_callback_url: Option<String>,
+    /// Space-separated OAuth scopes.
+    #[arg(long)]
+    oauth_scope: Option<String>,
+    /// Print OAuth links to stderr for browser sign-in.
+    #[arg(long)]
+    no_browser: bool,
+    /// Maximum scan time in seconds, including any OAuth login.
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=600))]
+    timeout: Option<u64>,
+}
+
+#[cfg(feature = "mcp-client")]
+impl RemoteBootstrapArgs {
+    fn connection(&self) -> Result<Option<mcp_client::Connection>> {
+        let has_oauth_options = self.oauth_client_id.is_some()
+            || self.oauth_client_secret_env.is_some()
+            || self.oauth_callback_url.is_some()
+            || self.oauth_scope.is_some();
+        let mut connection = match (&self.config, &self.server, &self.mcp_url) {
+            (Some(path), Some(server), None) => mcp_client::read_server(path, server)?,
+            (None, None, Some(url)) => mcp_client::Connection {
+                url: url.clone(),
+                transport: mcp_client::Transport::default(),
+                token_env: None,
+                oauth: None,
+                no_browser: false,
+            },
+            _ => {
+                if has_oauth_options
+                    || self.oauth.is_some()
+                    || self.transport.is_some()
+                    || self.token_env.is_some()
+                    || self.no_browser
+                    || self.timeout.is_some()
+                {
+                    bail!("remote MCP options require --mcp-url or --config and --server");
+                }
+                return Ok(None);
+            }
+        };
+        if let Some(transport) = self.transport {
+            connection.transport = transport;
+        }
+        if let Some(token_env) = &self.token_env {
+            connection.token_env = Some(token_env.clone());
+        }
+        if self.oauth == Some(false) {
+            if has_oauth_options {
+                bail!("OAuth options conflict with --oauth=false");
+            }
+            connection.oauth = None;
+        } else if self.oauth == Some(true) || has_oauth_options {
+            if self.token_env.is_none() {
+                connection.token_env = None;
+            }
+            let oauth = connection
+                .oauth
+                .get_or_insert_with(mcp_client::OAuth::default);
+            if let Some(id) = &self.oauth_client_id {
+                oauth.client_id = Some(id.clone());
+            }
+            if let Some(name) = &self.oauth_client_secret_env {
+                oauth.client_secret_env = Some(name.clone());
+            }
+            if let Some(url) = &self.oauth_callback_url {
+                oauth.callback_url = Some(url.clone());
+            }
+            if let Some(scope) = &self.oauth_scope {
+                oauth.scope = Some(scope.clone());
+            }
+        }
+        connection.no_browser = self.no_browser;
+        Ok(Some(connection))
+    }
+}
+
+#[cfg(feature = "mcp-client")]
+fn scan_timeout(value: Option<u64>) -> std::time::Duration {
+    value.map_or(mcp_client::DEFAULT_TIMEOUT, std::time::Duration::from_secs)
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(error) = run().await {
@@ -159,7 +285,25 @@ async fn run() -> Result<()> {
                 name,
                 force,
                 update,
+                #[cfg(feature = "mcp-client")]
+                remote,
             } => {
+                #[cfg(feature = "mcp-client")]
+                if let Some(connection) = remote.connection()? {
+                    let dir = require_service_dir(cli.svc_dir.clone())?;
+                    let name = name
+                        .as_deref()
+                        .expect("clap requires a name for MCP bootstrap");
+                    let store_path = resolve_optional_store_path(cli.store_path.take())?;
+                    return mcp_client::bootstrap(
+                        &dir,
+                        name,
+                        connection,
+                        store_path.as_deref(),
+                        scan_timeout(remote.timeout),
+                    )
+                    .await;
+                }
                 if *update {
                     update_bootstrap_skill(cli.svc_dir.as_deref(), name.as_deref())?;
                 } else {
@@ -170,6 +314,13 @@ async fn run() -> Result<()> {
                         *force,
                     )?;
                 }
+            }
+            #[cfg(feature = "mcp-client")]
+            SvcCommand::Refresh { name, timeout } => {
+                let dir = require_service_dir(cli.svc_dir.clone())?;
+                let store_path = resolve_optional_store_path(cli.store_path.take())?;
+                mcp_client::refresh(&dir, name, store_path.as_deref(), scan_timeout(*timeout))
+                    .await?;
             }
             SvcCommand::List => list_services(cli.svc_dir.as_deref())?,
             SvcCommand::Validate { name } => {
@@ -615,14 +766,20 @@ fn resolve_service_dir(path: Option<PathBuf>) -> Option<PathBuf> {
 }
 
 fn resolve_store_path(path: Option<PathBuf>) -> Result<PathBuf> {
-    let path = path
-        .or_else(|| data_home().map(|home| home.join("store.db")))
-        .ok_or_else(|| anyhow::anyhow!("store path required: pass --store-path or set HOME"))?;
-    if path.is_absolute() {
-        Ok(path)
-    } else {
-        Ok(std::env::current_dir()?.join(path))
-    }
+    resolve_optional_store_path(path)?
+        .ok_or_else(|| anyhow::anyhow!("store path required: pass --store-path or set HOME"))
+}
+
+fn resolve_optional_store_path(path: Option<PathBuf>) -> Result<Option<PathBuf>> {
+    path.or_else(|| data_home().map(|home| home.join("store.db")))
+        .map(|path| {
+            if path.is_absolute() {
+                Ok(path)
+            } else {
+                Ok(std::env::current_dir()?.join(path))
+            }
+        })
+        .transpose()
 }
 
 fn data_home() -> Option<PathBuf> {
