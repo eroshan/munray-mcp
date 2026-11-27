@@ -28,16 +28,12 @@ pub fn load(lua: &Lua, service_dir: &Path) -> Result<LoadReport> {
     load_named(lua, service_dir, None)
 }
 
-/// Load either all service packs or one named immediate child of `service_dir`.
-pub fn load_named(
-    lua: &Lua,
+/// Discover immediate service pack directories in name order, following links
+/// to their targets while keeping their configured paths.
+pub fn discover_pack_directories(
     service_dir: &Path,
     selected_name: Option<&str>,
-) -> Result<LoadReport> {
-    if !service_dir.is_dir() {
-        return Ok(LoadReport::default());
-    }
-
+) -> Result<Vec<(String, PathBuf)>> {
     let mut packs = Vec::new();
     for entry in fs::read_dir(service_dir)
         .with_context(|| format!("cannot read services directory {}", service_dir.display()))?
@@ -48,7 +44,6 @@ pub fn load_named(
         let path = entry.path();
         if name.starts_with('.')
             || selected_name.is_some_and(|selected| selected != name)
-            || !entry.metadata()?.is_dir()
             || !path.join("src").is_dir()
         {
             continue;
@@ -56,7 +51,20 @@ pub fn load_named(
         packs.push((name, path));
     }
     packs.sort_by(|(left, _), (right, _)| left.cmp(right));
+    Ok(packs)
+}
 
+/// Load either all service packs or one named immediate child of `service_dir`.
+pub fn load_named(
+    lua: &Lua,
+    service_dir: &Path,
+    selected_name: Option<&str>,
+) -> Result<LoadReport> {
+    if !service_dir.is_dir() {
+        return Ok(LoadReport::default());
+    }
+
+    let packs = discover_pack_directories(service_dir, selected_name)?;
     let examples = lua.create_table()?;
     let mut report = LoadReport::default();
     for (name, directory) in packs {

@@ -547,17 +547,10 @@ fn update_bootstrap_skill(service_dir: Option<&Path>, name: Option<&str>) -> Res
         if !service_dir.is_dir() {
             bail!("service path {} is not a directory", service_dir.display());
         }
-        let mut packs = fs::read_dir(&service_dir)?
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                !entry.file_name().to_string_lossy().starts_with('.')
-                    && entry.file_type().is_ok_and(|kind| kind.is_dir())
-                    && entry.path().join("src").is_dir()
-            })
-            .map(|entry| entry.path())
-            .collect::<Vec<_>>();
-        packs.sort();
-        packs
+        services::discover_pack_directories(&service_dir, None)?
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect()
     };
 
     if pack_dirs.is_empty() {
@@ -586,25 +579,13 @@ fn list_services(service_dir: Option<&Path>) -> Result<()> {
         bail!("service path {} is not a directory", service_dir.display());
     }
 
-    let mut packs = Vec::new();
-    for entry in fs::read_dir(&service_dir)? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.')
-            || !entry.file_type()?.is_dir()
-            || !entry.path().join("src").is_dir()
-        {
-            continue;
-        }
-        packs.push(name);
-    }
-    packs.sort();
+    let packs = services::discover_pack_directories(&service_dir, None)?;
     if packs.is_empty() {
         println!("No service packs found in {}", service_dir.display());
     } else {
         println!("Service packs in {}:", service_dir.display());
-        for pack in packs {
-            println!("  {pack}");
+        for (name, _) in packs {
+            println!("  {name}");
         }
     }
     Ok(())

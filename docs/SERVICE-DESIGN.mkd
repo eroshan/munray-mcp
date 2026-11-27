@@ -16,6 +16,8 @@ This is the complete authoring contract. [ARCHITECTURE.md](../ARCHITECTURE.md) d
 
 A service pack is a directory `SVC_DIR/<service>/` that contributes one or more Lua namespaces (typically rooted at `<service>.*`) to the munray Lua runtime.
 
+`SVC_DIR/<service>` can be a symbolic link to a pack directory containing `src`. Munray uses the link name when selecting or listing the pack.
+
 A service pack:
 
 - is loaded from the filesystem (not embedded in the munray binary)
