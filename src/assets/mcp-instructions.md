@@ -2,7 +2,7 @@
 
 ## Start here
 - **CRITICAL** First call `ctx_init()` to learn available namespaces, contracts, and conventions.
-- Use `schema("namespace")` for function details.
+- Use `schema("namespace.function")` for a specific function or `schema("namespace")` for the whole namespace. Pass multiple paths to `schema()` to look them up together.
 - Use `examples("namespace")` for runnable examples.
 
 ## Sessions

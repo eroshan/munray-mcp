@@ -131,8 +131,10 @@ Every public namespace table has a `__schema`. The root schema may have an empty
 `functions = {}` list when it only advertises child namespaces through
 `resources`. For any namespace with discovered descendants, `schema(namespace)`
 returns their sorted, fully qualified names in `nested_namespaces` plus a hint to
-repeat the lookup with one of those names. Every function descriptor must include
-all of:
+repeat the lookup with one of those names. `schema("service.resource.get")` returns
+one function and its referenced namespace-local types. Pass multiple namespace
+or function paths to get a table keyed by path. Every function descriptor must
+include all of:
 
 ```lua
 {

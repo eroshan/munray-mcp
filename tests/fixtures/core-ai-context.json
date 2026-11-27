@@ -25,15 +25,15 @@
   },
   "discovery": {
     "examples": "examples(target)",
-    "schema": "schema(target)",
+    "schema": "schema(target, ...)",
     "target_format": {
-      "note": "Use target names from the namespaces listed in this response.",
-      "pattern": "<service> | <service>.<resource>"
+      "note": "Use the listed namespaces or append a function name. Pass multiple paths to schema() to get a table keyed by path.",
+      "pattern": "<namespace> | <namespace>.<function>"
     }
   },
   "hints": {
     "global": [
-      "Use schema(target) for types/docs",
+      "Use schema(target, ...) for types/docs",
       "Use examples(target) for code",
       "Ops ending with * are guarded; require guarded mode",
       "MANDATORY: Cache reusable results in the current session and reuse them; re-fetch only when the source may have changed."

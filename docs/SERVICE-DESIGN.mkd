@@ -198,9 +198,13 @@ Note: The async mechanism is standardized (task-based) and is described by the `
 
 ## 5. Capabilities and `__schema` Metadata
 
-`ctx_init()`, `schema(namespace)`, and `examples(namespace)` are implemented in core Lua and discover `__schema` tables attached to namespaces.
+`ctx_init()`, `schema(target, ...)`, and `examples(namespace)` are implemented in core Lua and discover `__schema` tables attached to namespaces.
 
 `schema(namespace)` returns metadata for the exact namespace. When that namespace contains discovered descendant schemas, the response also includes a sorted `nested_namespaces` list of their fully qualified names and a `hint` telling the caller to repeat `schema()` with one of those names. The list is derived from discovered schemas rather than the optional declared `resources` table, so it also covers deeper descendants.
+
+`schema("myservice.resource.get")` returns the same schema shape with one function in `functions` and only the namespace-local types it references. Use the keys from `types` in parameter or return types, option and return schemas, iterator `yields`, and type `shape` expressions so discovery can include those definitions.
+
+`schema("myservice.resource.get", "vfs")` returns a table keyed by those two paths. Each entry is the result of looking up its path individually. An unknown path returns `nil, err` with code `NOT_FOUND` and the failed path. An empty or non-string path returns `INVALID_ARGUMENT`.
 
 The discovery cache is invalidated automatically when a snippet installs or deletes a namespace/function; there is no public invalidation API.
 

@@ -526,7 +526,7 @@ local function ai_context(_)
 
 	local hints = {
 		global = {
-			"Use schema(target) for types/docs",
+			"Use schema(target, ...) for types/docs",
 			"Use examples(target) for code",
 			"Ops ending with * are guarded; require guarded mode",
 			"MANDATORY: Cache reusable results in the current session and reuse them; re-fetch only when the source may have changed."
@@ -567,11 +567,11 @@ local function ai_context(_)
 			opts = "filters/config table; optional args are marked with ?"
 		},
 		discovery = {
-			schema = "schema(target)",
+			schema = "schema(target, ...)",
 			examples = "examples(target)",
 			target_format = {
-				pattern = "<service> | <service>.<resource>",
-				note = "Use target names from the namespaces listed in this response."
+				pattern = "<namespace> | <namespace>.<function>",
+				note = "Use the listed namespaces or append a function name. Pass multiple paths to schema() to get a table keyed by path."
 			}
 		},
 		hints = hints,
@@ -595,40 +595,107 @@ local function descendant_namespaces(schemas, namespace)
 	return descendants
 end
 
--- schema(namespace)
-function schema(namespace)
-	local d = discover()
-	local schema = d.schemas[namespace]
+local function function_schema(fn)
+	return {
+		name = fn.name,
+		signature = fn.signature,
+		returns_contract = fn.returns_contract,
+		description = fn.description,
+		guarded = is_guarded(fn),
+		params = fn.params,
+		returns_typed = fn.returns_typed or {},
+		input_schema = fn.input_schema,
+		output_schema = fn.output_schema,
+		yields = fn.yields,
+		async = fn.async,
+	}
+end
 
-	if not schema then
-		return nil, error_table("NOT_FOUND", "Unknown namespace: " .. namespace)
+local function referenced_types(types, fn)
+	if type(types) ~= "table" then
+		return nil
 	end
 
+	local names = {}
+	for name, definition in pairs(types) do
+		if type(name) == "string" and name ~= "" and type(definition) == "table" then
+			table.insert(names, name)
+		end
+	end
+	-- Prefer the longest literal name when several definitions begin at the same position.
+	table.sort(names, function(left, right) return #left > #right end)
+	local delimiters = "%s|,:?%[%]{}()<>"
+	local delimiter_at = "^[" .. delimiters .. "]"
+	local unknown_token_end = "^[^" .. delimiters .. "]+()"
+	local function find_name(expression, position)
+		for _, name in ipairs(names) do
+			local after_name = position + #name
+			if expression:sub(position, after_name - 1) == name
+				and (after_name > #expression or expression:match(delimiter_at, after_name)) then
+				return name, after_name
+			end
+		end
+	end
+
+	local selected = {}
+	local function include_expression(expression)
+		if type(expression) ~= "string" then
+			return
+		end
+		local position = 1
+		while position <= #expression do
+			local name, after_name = find_name(expression, position)
+			if name then
+				-- A name before a field's colon labels the field.
+				if not selected[name] and not expression:match("^%s*%??%s*:", after_name) then
+					local definition = types[name]
+					selected[name] = definition
+					include_expression(definition.shape)
+				end
+				position = after_name
+			else
+				position = expression:match(unknown_token_end, position) or position + 1
+			end
+		end
+	end
+
+	local function include_parameter(param)
+		if type(param) ~= "table" then
+			return
+		end
+		include_expression(param.type)
+		if type(param.schema) == "table" then
+			for _, field in pairs(param.schema) do
+				include_parameter(field)
+			end
+		end
+	end
+
+	for _, param in ipairs(fn.params or {}) do
+		include_parameter(param)
+	end
+	for _, result in ipairs(fn.returns_typed or {}) do
+		if type(result) == "table" then
+			include_expression(result.type)
+			include_expression(result.schema)
+		end
+	end
+	include_expression(fn.yields)
+
+	return next(selected) and selected or nil
+end
+
+local function namespace_schema(d, namespace)
 	local result = {
 		namespace = namespace,
-		service = schema.service,
+		service = d.schemas[namespace].service,
 		functions = {},
+		types = d.types_by_namespace[namespace],
 	}
 
 	for _, fn in ipairs(d.functions_by_namespace[namespace] or {}) do
-		local func_schema = {
-			name = fn.name,
-			signature = fn.signature,
-			returns_contract = fn.returns_contract,
-			description = fn.description,
-			guarded = is_guarded(fn),
-			params = fn.params,
-			returns_typed = fn.returns_typed or {},
-			input_schema = fn.input_schema,
-			output_schema = fn.output_schema,
-			yields = fn.yields,
-			async = fn.async,
-		}
-
-		table.insert(result.functions, func_schema)
+		table.insert(result.functions, function_schema(fn))
 	end
-
-	result.types = d.types_by_namespace[namespace] or nil
 
 	local descendants = descendant_namespaces(d.schemas, namespace)
 	if #descendants > 0 then
@@ -637,6 +704,50 @@ function schema(namespace)
 	end
 
 	return result
+end
+
+local function schema_for_target(d, target)
+	if type(target) ~= "string" or target == "" then
+		return nil, error_table("INVALID_ARGUMENT", "Expected a non-empty schema path")
+	end
+	if d.schemas[target] then
+		return namespace_schema(d, target)
+	end
+
+	local namespace, method = target:match("^(.+)%.([^.]+)$")
+	if namespace then
+		for _, fn in ipairs(d.functions_by_namespace[namespace] or {}) do
+			if fn.name == method then
+				return {
+					namespace = namespace,
+					service = d.schemas[namespace].service,
+					functions = { function_schema(fn) },
+					types = referenced_types(d.types_by_namespace[namespace], fn),
+				}
+			end
+		end
+	end
+	return nil, error_table("NOT_FOUND", "Unknown schema path: " .. target)
+end
+
+-- A single path returns its schema. Multiple paths return schemas keyed by path.
+function schema(...)
+	local d = discover()
+	local count = select("#", ...)
+	if count <= 1 then
+		return schema_for_target(d, ...)
+	end
+
+	local results = {}
+	for index = 1, count do
+		local path = select(index, ...)
+		local result, lookup_err = schema_for_target(d, path)
+		if result == nil then
+			return nil, lookup_err
+		end
+		results[path] = result
+	end
+	return results
 end
 
 -- Hidden bridge for Rust validation. It is not copied into MCP session environments.

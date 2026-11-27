@@ -88,7 +88,27 @@ demo = {
   admin = {
     __schema = { namespace = "demo.admin", service = "demo", functions = {} },
     user = {
-      __schema = { namespace = "demo.admin.user", service = "demo", functions = {} },
+      list = function() return function() end end,
+      __schema = {
+        namespace = "demo.admin.user", service = "demo",
+        types = {
+          Filter = { shape = "{query:string}" },
+          ["Issue-Result"] = { shape = "{Ignored?:string, details:Issue+Detail[], children:Issue-Result[]}" },
+          ["Issue+Detail"] = { shape = "{value:string}" },
+          Issue = { shape = "{unrelated:string}" },
+          Ignored = { shape = "{value:string}" },
+        },
+        functions = {
+          {
+            name = "list", signature = "(opts)", description = "List users.", guarded = false,
+            returns_contract = "core.iter", yields = "Issue-Result",
+            params = {{
+              name = "opts", type = "table", schema = { filter = {type = "Filter|nil"} },
+            }},
+            returns_typed = {{name = "iterator", type = "Iterator"}},
+          },
+        },
+      },
     },
   },
 }
@@ -99,7 +119,13 @@ demo = {
     let runtime = LuaRuntime::new(Some(services.path())).unwrap();
     let execution = runtime
         .execute(
-            r#"return {root = schema("demo"), leaf = schema("demo.alpha")}"#,
+            r#"
+return {
+  root = schema("demo"),
+  leaf = schema("demo.alpha"),
+  method = schema("demo.admin.user.list"),
+}
+"#,
             ExecutionMode::ReadOnly,
             "<schema-navigation>",
         )
@@ -115,6 +141,100 @@ demo = {
     );
     assert!(execution.result["leaf"].get("hint").is_none());
     assert!(execution.result["leaf"].get("nested_namespaces").is_none());
+    let method = &execution.result["method"];
+    assert_eq!(method["namespace"], "demo.admin.user");
+    assert_eq!(method["functions"][0]["yields"], "Issue-Result");
+    assert_eq!(
+        method["types"],
+        serde_json::json!({
+            "Filter": {"shape": "{query:string}"},
+            "Issue-Result": {"shape": "{Ignored?:string, details:Issue+Detail[], children:Issue-Result[]}"},
+            "Issue+Detail": {"shape": "{value:string}"},
+        })
+    );
+}
+
+#[test]
+fn function_schema_returns_one_descriptor_and_its_types() {
+    let runtime = LuaRuntime::new(None).unwrap();
+    let schema = runtime
+        .execute(
+            r#"
+return {
+  stat = schema("vfs.stat"),
+  expose = schema("vfs.expose"),
+  full = schema("vfs"),
+}
+"#,
+            ExecutionMode::ReadOnly,
+            "<function-schema>",
+        )
+        .unwrap()
+        .result;
+
+    let full = &schema["full"];
+    let stat = &schema["stat"];
+    let functions = stat["functions"].as_array().unwrap();
+    assert_eq!(stat["namespace"], "vfs");
+    assert_eq!(stat["service"], "core");
+    assert_eq!(functions.len(), 1);
+    assert_eq!(
+        &functions[0],
+        full["functions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|function| function["name"] == "stat")
+            .unwrap()
+    );
+    assert_eq!(
+        stat["types"],
+        serde_json::json!({"FileInfo": full["types"]["FileInfo"]})
+    );
+
+    let expose = &schema["expose"];
+    assert_eq!(expose["functions"][0]["guarded"], true);
+    assert_eq!(
+        expose["types"],
+        serde_json::json!({
+            "ExposeResult": full["types"]["ExposeResult"],
+            "ExposedFile": full["types"]["ExposedFile"],
+        })
+    );
+}
+
+#[test]
+fn schema_accepts_multiple_namespaces_and_function_paths() {
+    let runtime = LuaRuntime::new_session(None).unwrap();
+    runtime
+        .execute(
+            r#"
+local namespaces = schema("vfs", "async_task")
+assert(namespaces.vfs.namespace == "vfs" and #namespaces.vfs.functions > 1)
+assert(namespaces.async_task.namespace == "async_task" and #namespaces.async_task.functions > 1)
+
+local functions = schema("vfs.stat", "vfs.read_text")
+assert(#functions["vfs.stat"].functions == 1)
+assert(functions["vfs.stat"].functions[1].name == "stat")
+assert(#functions["vfs.read_text"].functions == 1)
+assert(functions["vfs.read_text"].functions[1].name == "read_text")
+assert(functions["vfs.read_text"].types == nil)
+
+local mixed = schema("async_task", "vfs.stat")
+assert(mixed.async_task.namespace == "async_task")
+assert(mixed["vfs.stat"].functions[1].name == "stat")
+assert(select('#', schema("vfs")) == 1)
+
+local missing, missing_err = schema("vfs.stat", "vfs.missing")
+assert(missing == nil and missing_err.code == "NOT_FOUND")
+assert(missing_err.message:find("vfs.missing", 1, true))
+local invalid, invalid_err = schema("vfs.stat", nil, "async_task")
+assert(invalid == nil and invalid_err.code == "INVALID_ARGUMENT")
+"#,
+            ExecutionMode::ReadOnly,
+            "<batch-schema>",
+        )
+        .unwrap();
 }
 
 #[test]
