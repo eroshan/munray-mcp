@@ -366,7 +366,21 @@ coordinate calls across processes. OAuth discovery requires a resource string
 that exactly matches the MCP endpoint for challenge and endpoint-specific
 metadata, or the origin for root metadata. Candidates with invalid or
 mismatched resources are skipped. The session retains the accepted resource for OAuth
-requests while MCP requests use the configured endpoint.
+requests while MCP requests use the configured endpoint. Munray uses the
+`oauth2` crate to build the authorization URL with PKCE and state, exchange
+authorization codes, and refresh tokens. Munray handles MCP discovery, dynamic
+client registration, the loopback callback, and credential storage. OAuth
+HTTP requests use the shared client with redirects disabled. Token endpoint
+responses must contain a single complete JSON value, with valid Unicode even
+in fields the client does not use.
+The `none` registration method selects a public-client token exchange with
+`client_id` in the form, even when the registration response includes a secret.
+Registered `client_secret_basic` and `client_secret_post` methods require a
+non-empty secret before browser authorization or token exchange starts. For a
+client with a secret and no registered method in local metadata, Munray uses
+an advertised Basic or POST method, preferring Basic and using it as the
+default when the provider omits its method list. An unusable cached dynamic
+registration is replaced when new tokens are needed.
 Stored credentials are replaced only after
 a successful authorization, so cancelling a scope upgrade preserves the old
 session. A login started by a Lua call in the

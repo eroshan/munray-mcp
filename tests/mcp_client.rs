@@ -1,7 +1,10 @@
 #![cfg(feature = "mcp-client")]
 
 use assert_cmd::cargo::cargo_bin;
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{
+    Engine,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 use reqwest::Url;
 use serde_json::{Value, json};
@@ -125,7 +128,8 @@ impl Drop for Server {
     }
 }
 
-fn respond(mut stream: TcpStream, status: &str, headers: &[(&str, &str)], body: &str) {
+fn respond(mut stream: TcpStream, status: &str, headers: &[(&str, &str)], body: impl AsRef<[u8]>) {
+    let body = body.as_ref();
     write!(
         stream,
         "HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: {}\r\n",
@@ -135,7 +139,8 @@ fn respond(mut stream: TcpStream, status: &str, headers: &[(&str, &str)], body: 
     for (key, value) in headers {
         write!(stream, "{key}: {value}\r\n").unwrap();
     }
-    write!(stream, "\r\n{body}").unwrap();
+    stream.write_all(b"\r\n").unwrap();
+    stream.write_all(body).unwrap();
 }
 
 fn respond_json(stream: TcpStream, value: &Value) {
@@ -143,7 +148,7 @@ fn respond_json(stream: TcpStream, value: &Value) {
         stream,
         "200 OK",
         &[("Content-Type", "application/json")],
-        &value.to_string(),
+        value.to_string(),
     );
 }
 
@@ -726,7 +731,197 @@ fn parameters(target: &str) -> HashMap<String, String> {
 
 #[test]
 #[ignore = "requires loopback TCP permissions unavailable in the managed sandbox"]
+fn oauth_rejects_registered_secret_auth_without_a_secret_before_login() {
+    for (method, client_secret) in [
+        ("client_secret_basic", Some("")),
+        ("client_secret_post", None),
+    ] {
+        let unexpected_requests = Arc::new(AtomicUsize::new(0));
+        let recorded_requests = Arc::clone(&unexpected_requests);
+        let server = Server::new(
+            move |stream, request, origin| match request.target.as_str() {
+                "/mcp" => {
+                    let challenge = format!("Bearer resource_metadata=\"{origin}/protected\"");
+                    respond(
+                        stream,
+                        "401 Unauthorized",
+                        &[("WWW-Authenticate", &challenge)],
+                        "",
+                    );
+                }
+                "/protected" => respond_json(
+                    stream,
+                    &json!({"resource":format!("{origin}/mcp"),"authorization_servers":[origin]}),
+                ),
+                "/.well-known/oauth-authorization-server" => respond_json(
+                    stream,
+                    &json!({
+                        "issuer":origin,
+                        "authorization_endpoint":format!("{origin}/authorize"),
+                        "token_endpoint":format!("{origin}/token"),
+                        "registration_endpoint":format!("{origin}/register"),
+                    }),
+                ),
+                "/register" => respond_json(
+                    stream,
+                    &json!({"client_id":"test-client","token_endpoint_auth_method":method,"client_secret":client_secret}),
+                ),
+                _ => {
+                    recorded_requests.fetch_add(1, Ordering::Relaxed);
+                    respond(stream, "400 Bad Request", &[], "");
+                }
+            },
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let auth_dir = temp.path().join("private-auth");
+        let output = command(temp.path())
+            .env("MUNRAY_MCP_AUTH_DIR", &auth_dir)
+            .args([
+                "svc",
+                "bootstrap",
+                "oauth_demo",
+                "--mcp-url",
+                &format!("{}/mcp", server.url),
+                "--oauth",
+                "--no-browser",
+                "--timeout",
+                "3",
+            ])
+            .output()
+            .unwrap();
+        let diagnostics = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success());
+        assert!(
+            diagnostics.contains(&format!(
+                "OAuth token authentication method {method} requires a non-empty client secret"
+            )),
+            "{diagnostics}"
+        );
+        assert!(!diagnostics.contains("Authorize the MCP integration"));
+        assert_eq!(unexpected_requests.load(Ordering::Relaxed), 0);
+        assert!(fs::read_dir(&auth_dir).unwrap().all(|entry| {
+            entry
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "lock")
+        }));
+    }
+}
+
+#[test]
+#[ignore = "requires loopback TCP permissions unavailable in the managed sandbox"]
+fn oauth_rejects_malformed_json_in_token_responses() {
+    let responses: &[(&str, &[u8], &str)] = &[
+        (
+            "200 OK",
+            br#"{"access_token":"fixture-token","token_type":"Bearer"} {}"#,
+            "invalid OAuth token response (expected JSON)",
+        ),
+        (
+            "200 OK",
+            br#"{"access_token":"fixture-token","token_type":"Bearer","extension":"\uD800"}"#,
+            "invalid OAuth token response (expected JSON)",
+        ),
+        (
+            "400 Bad Request",
+            br#"{"error":"invalid_client"} trailing data"#,
+            "OAuth token request failed (HTTP 400 Bad Request)",
+        ),
+        (
+            "400 Bad Request",
+            br#"{"error":"invalid_grant"} trailing data"#,
+            "OAuth token request failed (HTTP 400 Bad Request)",
+        ),
+        (
+            "400 Bad Request",
+            b"{\"error\":\"invalid_client\",\"extension\":\"\xFF\"}",
+            "OAuth token request failed (HTTP 400 Bad Request)",
+        ),
+        (
+            "400 Bad Request",
+            br#"{"error":"invalid_grant","extension":"\uD800"}"#,
+            "OAuth token request failed (HTTP 400 Bad Request)",
+        ),
+    ];
+    for &(status, body, diagnostic) in responses {
+        let server = Server::new(move |stream, request, origin| {
+            match request.target.split('?').next().unwrap() {
+                "/mcp" => {
+                    let challenge = format!("Bearer resource_metadata=\"{origin}/protected\"");
+                    respond(
+                        stream,
+                        "401 Unauthorized",
+                        &[("WWW-Authenticate", &challenge)],
+                        "",
+                    );
+                }
+                "/protected" => respond_json(
+                    stream,
+                    &json!({"resource":format!("{origin}/mcp"),"authorization_servers":[origin]}),
+                ),
+                "/.well-known/oauth-authorization-server" => respond_json(
+                    stream,
+                    &json!({
+                        "issuer":origin,
+                        "authorization_endpoint":format!("{origin}/authorize"),
+                        "token_endpoint":format!("{origin}/token"),
+                    }),
+                ),
+                "/authorize" => {
+                    let query = parameters(&request.target);
+                    let mut callback = Url::parse(&query["redirect_uri"]).unwrap();
+                    callback
+                        .query_pairs_mut()
+                        .append_pair("state", &query["state"])
+                        .append_pair("code", "fixture-code");
+                    respond(stream, "302 Found", &[("Location", callback.as_str())], "");
+                }
+                "/token" => respond(
+                    stream,
+                    status,
+                    &[("Content-Type", "application/json")],
+                    body,
+                ),
+                _ => respond(stream, "404 Not Found", &[], ""),
+            }
+        });
+        let temp = tempfile::tempdir().unwrap();
+        let auth_dir = temp.path().join("private-auth");
+        let mut bootstrap = command(temp.path());
+        bootstrap.env("MUNRAY_MCP_AUTH_DIR", &auth_dir).args([
+            "svc",
+            "bootstrap",
+            "oauth_demo",
+            "--mcp-url",
+            &format!("{}/mcp", server.url),
+            "--oauth",
+            "--oauth-client-id",
+            "test-client",
+            "--no-browser",
+            "--timeout",
+            "5",
+        ]);
+        let bootstrap = BrowserCommand::start(bootstrap);
+        bootstrap.authorize();
+        bootstrap.expect_failure(diagnostic);
+
+        let session_file = fs::read_dir(auth_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .unwrap();
+        let session: Value = serde_json::from_slice(&fs::read(session_file).unwrap()).unwrap();
+        assert_eq!(session["token"], Value::Null);
+    }
+}
+
+#[test]
+#[ignore = "requires loopback TCP permissions unavailable in the managed sandbox"]
 fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
+    const CLIENT_ID: &str = "configured :client+id";
+    const CLIENT_SECRET: &str = "local :secret+value";
+
     enum RejectedResource {
         Unrelated,
         Null,
@@ -743,6 +938,12 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
         (true, Some(RejectedResource::DotSegments)),
     ] {
         let root_fallback = rejected_resource.is_some();
+        let use_basic = preregistered && !root_fallback;
+        let client_id = if preregistered {
+            CLIENT_ID
+        } else {
+            "test-client"
+        };
         let events = (!preregistered).then(LegacyEvents::default);
         let registrations = Arc::new(AtomicUsize::new(0));
         let recorded_registrations = Arc::clone(&registrations);
@@ -862,26 +1063,36 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
                     stream,
                     &json!({"resource":origin,"authorization_servers":[origin],"scopes_supported":["read"]}),
                 ),
-                "/.well-known/oauth-authorization-server" => respond_json(
-                    stream,
-                    &json!({
+                "/.well-known/oauth-authorization-server" => {
+                    let mut metadata = json!({
                         "issuer":origin,
                         "authorization_endpoint":format!("{origin}/authorize"),
                         "token_endpoint":format!("{origin}/token"),
                         "registration_endpoint":format!("{origin}/register"),
                         "code_challenge_methods_supported":["S256"],
-                        "token_endpoint_auth_methods_supported":["none","client_secret_post"],
                         "scopes_supported":["read","offline_access"]
-                    }),
-                ),
+                    });
+                    if !use_basic {
+                        metadata["token_endpoint_auth_methods_supported"] =
+                            json!(["none", "client_secret_post"]);
+                    }
+                    respond_json(stream, &metadata);
+                }
                 "/register" => {
                     recorded_registrations.fetch_add(1, Ordering::Relaxed);
                     assert_eq!(request.json()["token_endpoint_auth_method"], "none");
-                    respond_json(stream, &json!({"client_id":"test-client"}));
+                    respond_json(
+                        stream,
+                        &json!({
+                            "client_id":"test-client",
+                            "client_secret":"unused-public-secret",
+                            "token_endpoint_auth_method":"none",
+                        }),
+                    );
                 }
                 "/authorize" => {
                     let query = parameters(&request.target);
-                    assert_eq!(query["client_id"], "test-client");
+                    assert_eq!(query["client_id"], client_id);
                     assert_eq!(query["resource"], oauth_resource);
                     assert_eq!(query["code_challenge_method"], "S256");
                     let count = recorded_authorizations.fetch_add(1, Ordering::Relaxed) + 1;
@@ -901,10 +1112,13 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
                         assert_eq!(query["scope"], "read offline_access");
                     }
                     let code = format!("code-{count}");
-                    proofs
-                        .lock()
-                        .unwrap()
-                        .insert(code.clone(), query["code_challenge"].clone());
+                    proofs.lock().unwrap().insert(
+                        code.clone(),
+                        (
+                            query["code_challenge"].clone(),
+                            query["redirect_uri"].clone(),
+                        ),
+                    );
                     let mut callback = Url::parse(&query["redirect_uri"]).unwrap();
                     callback
                         .query_pairs_mut()
@@ -913,21 +1127,39 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
                     respond(stream, "302 Found", &[("Location", callback.as_str())], "");
                 }
                 "/token" => {
-                    let form =
-                        parameters(&format!("?{}", String::from_utf8(request.body).unwrap()));
-                    assert_eq!(form["client_id"], "test-client");
-                    assert_eq!(form["resource"], oauth_resource);
+                    assert_eq!(request.method, "POST");
                     assert_eq!(
-                        form.get("client_secret").map(String::as_str),
-                        preregistered.then_some("local-secret")
+                        request.headers["content-type"],
+                        "application/x-www-form-urlencoded"
                     );
+                    assert_eq!(request.headers["accept"], "application/json");
+                    let form =
+                        parameters(&format!("?{}", std::str::from_utf8(&request.body).unwrap()));
+                    if use_basic {
+                        let authorization = format!(
+                            "Basic {}",
+                            STANDARD.encode("configured+%3Aclient%2Bid:local+%3Asecret%2Bvalue")
+                        );
+                        assert_eq!(request.auth(), Some(authorization.as_str()));
+                        assert!(!form.contains_key("client_id"));
+                        assert!(!form.contains_key("client_secret"));
+                    } else {
+                        assert!(request.auth().is_none());
+                        assert_eq!(form["client_id"], client_id);
+                        assert_eq!(
+                            form.get("client_secret").map(String::as_str),
+                            preregistered.then_some(CLIENT_SECRET)
+                        );
+                    }
+                    assert_eq!(form["resource"], oauth_resource);
                     if form["grant_type"] == "refresh_token" {
+                        assert!(!form.contains_key("redirect_uri"));
                         let refresh = recorded_refreshes.fetch_add(1, Ordering::Relaxed);
                         assert_eq!(form["refresh_token"], "refresh-1");
                         if refresh == 0 {
                             respond_json(
                                 stream,
-                                &json!({"access_token":"token-refreshed","token_type":"Bearer","expires_in":0}),
+                                &json!({"access_token":"token-refreshed","token_type":"bEaReR","expires_in":0}),
                             );
                         } else {
                             respond(
@@ -942,7 +1174,10 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
                             );
                         }
                     } else {
-                        let expected = proofs.lock().unwrap().remove(&form["code"]).unwrap();
+                        assert_eq!(form["grant_type"], "authorization_code");
+                        let (expected, redirect) =
+                            proofs.lock().unwrap().remove(&form["code"]).unwrap();
+                        assert_eq!(form["redirect_uri"], redirect);
                         assert_eq!(
                             URL_SAFE_NO_PAD
                                 .encode(Sha256::digest(form["code_verifier"].as_bytes())),
@@ -966,7 +1201,7 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
         let mut bootstrap = command(temp.path());
         bootstrap
             .env("MUNRAY_MCP_AUTH_DIR", &auth_dir)
-            .env("MUNRAY_TEST_CLIENT_SECRET", "local-secret")
+            .env("MUNRAY_TEST_CLIENT_SECRET", CLIENT_SECRET)
             .args([
                 "svc",
                 "bootstrap",
@@ -981,7 +1216,7 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
         if preregistered {
             bootstrap.args([
                 "--oauth-client-id",
-                "test-client",
+                CLIENT_ID,
                 "--oauth-client-secret-env",
                 "MUNRAY_TEST_CLIENT_SECRET",
             ]);
@@ -1000,14 +1235,16 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
             "a rejected resource document was used to discover its issuer"
         );
 
-        if !preregistered {
-            let session_file = fs::read_dir(&auth_dir)
+        let dynamic_session_file = (!preregistered).then(|| {
+            fs::read_dir(&auth_dir)
                 .unwrap()
                 .map(|entry| entry.unwrap().path())
                 .find(|path| path.extension().is_some_and(|ext| ext == "json"))
-                .unwrap();
+                .unwrap()
+        });
+        if let Some(session_file) = &dynamic_session_file {
             let mut old_session: Value =
-                serde_json::from_slice(&fs::read(&session_file).unwrap()).unwrap();
+                serde_json::from_slice(&fs::read(session_file).unwrap()).unwrap();
             old_session.as_object_mut().unwrap().remove("resource");
             fs::write(session_file, serde_json::to_vec(&old_session).unwrap()).unwrap();
         }
@@ -1018,7 +1255,7 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
             let mut command = command(temp.path());
             command
                 .env("MUNRAY_MCP_AUTH_DIR", &auth_dir)
-                .env("MUNRAY_TEST_CLIENT_SECRET", "local-secret")
+                .env("MUNRAY_TEST_CLIENT_SECRET", CLIENT_SECRET)
                 .arg("run")
                 .arg(&script);
             BrowserCommand::start(command)
@@ -1043,12 +1280,25 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
             registrations.load(Ordering::Relaxed),
             if preregistered { 0 } else { 2 }
         );
+        if let Some(session_file) = dynamic_session_file {
+            let mut old_session: Value =
+                serde_json::from_slice(&fs::read(&session_file).unwrap()).unwrap();
+            old_session["registration"]["token_endpoint_auth_method"] =
+                json!("client_secret_basic");
+            old_session["registration"]["client_secret"] = Value::Null;
+            fs::write(session_file, serde_json::to_vec(&old_session).unwrap()).unwrap();
+            let reauth = run();
+            reauth.authorize();
+            assert_eq!(reauth.finish().trim(), r#""code-3""#);
+            assert_eq!(registrations.load(Ordering::Relaxed), 3);
+            assert_eq!(refreshes.load(Ordering::Relaxed), 2);
+        }
         if preregistered {
             deny_extra_scope.store(true, Ordering::Relaxed);
             let mut refresh = command(temp.path());
             refresh
                 .env("MUNRAY_MCP_AUTH_DIR", &auth_dir)
-                .env("MUNRAY_TEST_CLIENT_SECRET", "local-secret")
+                .env("MUNRAY_TEST_CLIENT_SECRET", CLIENT_SECRET)
                 .args(["svc", "refresh", "oauth_demo", "--timeout", "10"]);
             let refresh = BrowserCommand::start(refresh);
             refresh.authorize();
@@ -1056,7 +1306,7 @@ fn oauth_registers_refreshes_upgrades_scope_and_reopens_browser() {
             assert_eq!(run().finish().trim(), r#""code-3""#);
         }
         let catalog = fs::read_to_string(temp.path().join("oauth_demo/mcp-catalog.json")).unwrap();
-        assert!(!catalog.contains("local-secret"));
+        assert!(!catalog.contains(CLIENT_SECRET));
         assert!(!catalog.contains("refresh-1"));
     }
 }

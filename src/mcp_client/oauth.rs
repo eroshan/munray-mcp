@@ -3,13 +3,20 @@ use super::{
     credential_store::{self, CredentialStore},
 };
 use anyhow::{Context, Result, bail, ensure};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use oauth2::{
+    AsyncHttpClient, AuthType, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
+    EndpointNotSet, EndpointSet, HttpRequest, HttpResponse, PkceCodeChallenge, PkceCodeVerifier,
+    RedirectUrl, RefreshToken, RequestTokenError, Scope, TokenResponse, TokenUrl,
+    basic::{BasicClient, BasicErrorResponseType, BasicTokenType},
+};
+use parking_lot::Mutex;
 use reqwest::{Client, StatusCode, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{
     env,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    pin::Pin,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use subtle::ConstantTimeEq;
@@ -107,6 +114,20 @@ struct Registration {
     token_endpoint_auth_method: Option<String>,
 }
 
+enum TokenAuthentication {
+    Public,
+    Basic(String),
+    Post(String),
+}
+
+type OAuthClient =
+    BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
+
+enum TokenGrant {
+    AuthorizationCode(AuthorizationCode, PkceCodeVerifier),
+    Refresh(RefreshToken),
+}
+
 #[derive(Serialize, Deserialize)]
 struct Token {
     access_token: String,
@@ -196,20 +217,34 @@ impl Auth {
             .timeout(Duration::from_secs(20))
             .build()?;
         let mut replace_registration = missing_scope && self.settings.client_id.is_none();
+        let cached_authentication = match session
+            .as_ref()
+            .map(|cached| self.token_authentication(&cached.provider, &cached.registration))
+        {
+            Some(Ok(authentication)) => Some(authentication),
+            Some(Err(_)) if self.settings.client_id.is_none() => {
+                replace_registration = true;
+                None
+            }
+            Some(Err(error)) => return Err(error),
+            None => None,
+        };
         if !challenge.scope_upgrade
+            && let Some(authentication) = cached_authentication
             && let Some(cached) = &mut session
             && let Some(refresh) = cached
                 .token
                 .as_ref()
                 .and_then(|token| token.refresh_token.as_deref())
         {
-            let result = self
-                .exchange(
-                    &http,
-                    cached,
-                    &[("grant_type", "refresh_token"), ("refresh_token", refresh)],
-                )
-                .await?;
+            let client = self.oauth_client(cached, authentication)?;
+            let result = exchange(
+                &http,
+                &client,
+                cached.resource(&self.endpoint),
+                TokenGrant::Refresh(RefreshToken::new(refresh.to_owned())),
+            )
+            .await?;
             match result {
                 TokenReply::Granted(mut token) => {
                     if token.refresh_token.is_none() {
@@ -267,25 +302,17 @@ impl Auth {
                 }
                 _ => self.register(http, redirect.as_str(), challenge).await?,
             };
-            let mut authorization_url =
-                self.provider_endpoint(&session.provider.authorization_endpoint)?;
-            let state = random_secret();
-            let verifier = random_secret();
-            let proof = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-            {
-                let mut query = authorization_url.query_pairs_mut();
-                query
-                    .append_pair("response_type", "code")
-                    .append_pair("client_id", &session.registration.client_id)
-                    .append_pair("redirect_uri", redirect.as_str())
-                    .append_pair("state", &state)
-                    .append_pair("code_challenge", &proof)
-                    .append_pair("code_challenge_method", "S256")
-                    .append_pair("resource", session.resource(&self.endpoint));
-                if !session.scopes.is_empty() {
-                    query.append_pair("scope", &session.scopes.join(" "));
-                }
-            }
+            let authentication =
+                self.token_authentication(&session.provider, &session.registration)?;
+            let client = self.oauth_client(&session, authentication)?;
+            let resource = session.resource(&self.endpoint);
+            let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
+            let (authorization_url, state) = client
+                .authorize_url(CsrfToken::new_random)
+                .set_pkce_challenge(challenge)
+                .add_scopes(session.scopes.iter().cloned().map(Scope::new))
+                .add_extra_param("resource", resource)
+                .url();
             // Retain prior credentials until authorization succeeds. An initial
             // login can still save its registration for reuse after cancellation.
             if !has_saved_token {
@@ -296,18 +323,14 @@ impl Auth {
                 tokio::spawn(open_browser(authorization_url));
             }
             let response =
-                receive_callback(&listener, &redirect, &state, &session.provider).await?;
+                receive_callback(&listener, &redirect, state.secret(), &session.provider).await?;
             let result = match response {
                 Callback::Code(code) => {
-                    self.exchange(
+                    exchange(
                         http,
-                        &session,
-                        &[
-                            ("grant_type", "authorization_code"),
-                            ("code", &code),
-                            ("code_verifier", &verifier),
-                            ("redirect_uri", redirect.as_str()),
-                        ],
+                        &client,
+                        resource,
+                        TokenGrant::AuthorizationCode(AuthorizationCode::new(code), verifier),
                     )
                     .await?
                 }
@@ -502,91 +525,188 @@ impl Auth {
         Ok(url)
     }
 
-    async fn exchange(
+    fn token_authentication(
         &self,
-        http: &Client,
-        session: &Session,
-        params: &[(&str, &str)],
-    ) -> Result<TokenReply> {
-        let registration = &session.registration;
+        provider: &Provider,
+        registration: &Registration,
+    ) -> Result<TokenAuthentication> {
+        let auth_method = registration.token_endpoint_auth_method.as_deref();
+        if auth_method == Some("none") {
+            return Ok(TokenAuthentication::Public);
+        }
         let client_secret = match &self.settings.client_secret_env {
             Some(name) => Some(secret(name)?),
             None => registration
                 .client_secret
-                .clone()
-                .filter(|secret| !secret.is_empty()),
+                .as_ref()
+                .filter(|secret| !secret.is_empty())
+                .cloned(),
         };
-        let mut form = params.to_vec();
-        form.push(("resource", session.resource(&self.endpoint)));
-        let mut request = http.post(self.provider_endpoint(&session.provider.token_endpoint)?);
-        if let Some(secret) = &client_secret {
-            let basic = match registration.token_endpoint_auth_method.as_deref() {
-                Some("client_secret_post") => false,
-                Some("client_secret_basic") => true,
-                Some(other) => bail!("unsupported OAuth token authentication method {other}"),
-                None => session
-                    .provider
-                    .token_endpoint_auth_methods_supported
-                    .as_ref()
-                    .is_none_or(|methods| {
-                        methods.iter().any(|method| method == "client_secret_basic")
-                    }),
-            };
-            if basic {
-                request = request.basic_auth(
-                    form_encode(&registration.client_id),
-                    Some(form_encode(secret)),
-                );
-            } else {
-                form.push(("client_id", &registration.client_id));
-                form.push(("client_secret", secret));
+        match (auth_method, client_secret) {
+            (Some("client_secret_basic"), Some(secret)) => Ok(TokenAuthentication::Basic(secret)),
+            (Some("client_secret_post"), Some(secret)) => Ok(TokenAuthentication::Post(secret)),
+            (Some(method @ ("client_secret_basic" | "client_secret_post")), None) => {
+                bail!(
+                    "OAuth token authentication method {method} requires a non-empty client secret"
+                )
             }
-        } else {
-            form.push(("client_id", &registration.client_id));
-        }
-        let response = request
-            .form(&form)
-            .send()
-            .await
-            .map_err(|_| anyhow::anyhow!("OAuth token request failed"))?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let error = read_json::<serde_json::Value>(response).await.ok();
-            match error.as_ref().and_then(|error| error["error"].as_str()) {
-                Some("invalid_grant") => {
-                    return Ok(TokenReply::LoginRequired {
-                        invalid_client: false,
-                    });
+            (Some(method), _) => bail!("unsupported OAuth token authentication method {method}"),
+            (None, None) => Ok(TokenAuthentication::Public),
+            (None, Some(secret)) => match provider.token_endpoint_auth_methods_supported.as_deref()
+            {
+                None => Ok(TokenAuthentication::Basic(secret)),
+                Some(methods) if methods.iter().any(|method| method == "client_secret_basic") => {
+                    Ok(TokenAuthentication::Basic(secret))
                 }
-                Some("invalid_client") => {
-                    return Ok(TokenReply::LoginRequired {
-                        invalid_client: true,
-                    });
+                Some(methods) if methods.iter().any(|method| method == "client_secret_post") => {
+                    Ok(TokenAuthentication::Post(secret))
                 }
-                _ => bail!("OAuth token request failed (HTTP {status})"),
-            }
+                Some(_) => bail!(
+                    "OAuth provider does not advertise a supported client-secret authentication method"
+                ),
+            },
         }
-
-        #[derive(Deserialize)]
-        struct Reply {
-            access_token: String,
-            token_type: String,
-            refresh_token: Option<String>,
-            expires_in: Option<u64>,
-        }
-        let reply: Reply = read_json(response).await?;
-        ensure!(
-            reply.token_type.eq_ignore_ascii_case("Bearer") && !reply.access_token.is_empty(),
-            "OAuth token endpoint did not return a usable bearer token"
-        );
-        Ok(TokenReply::Granted(Token {
-            access_token: reply.access_token,
-            refresh_token: reply.refresh_token,
-            expiration: reply
-                .expires_in
-                .map(|seconds| now().saturating_add(seconds)),
-        }))
     }
+
+    fn oauth_client(
+        &self,
+        session: &Session,
+        authentication: TokenAuthentication,
+    ) -> Result<OAuthClient> {
+        let mut client = BasicClient::new(ClientId::new(session.registration.client_id.clone()))
+            .set_auth_uri(AuthUrl::from_url(
+                self.provider_endpoint(&session.provider.authorization_endpoint)?,
+            ))
+            .set_token_uri(TokenUrl::from_url(
+                self.provider_endpoint(&session.provider.token_endpoint)?,
+            ))
+            .set_redirect_uri(
+                RedirectUrl::new(session.redirect.clone()).context("invalid OAuth callback URL")?,
+            );
+        let (auth_type, client_secret) = match authentication {
+            TokenAuthentication::Public => (AuthType::RequestBody, None),
+            TokenAuthentication::Basic(secret) => (AuthType::BasicAuth, Some(secret)),
+            TokenAuthentication::Post(secret) => (AuthType::RequestBody, Some(secret)),
+        };
+        if let Some(secret) = client_secret {
+            client = client.set_client_secret(ClientSecret::new(secret));
+        }
+        Ok(client.set_auth_type(auth_type))
+    }
+}
+
+async fn exchange(
+    http: &Client,
+    client: &OAuthClient,
+    resource: &str,
+    grant: TokenGrant,
+) -> Result<TokenReply> {
+    let transport = TokenHttp {
+        client: http,
+        status: Mutex::new(None),
+    };
+    let reply = match grant {
+        TokenGrant::AuthorizationCode(code, verifier) => {
+            client
+                .exchange_code(code)
+                .set_pkce_verifier(verifier)
+                .add_extra_param("resource", resource)
+                .request_async(&transport)
+                .await
+        }
+        TokenGrant::Refresh(token) => {
+            client
+                .exchange_refresh_token(&token)
+                .add_extra_param("resource", resource)
+                .request_async(&transport)
+                .await
+        }
+    };
+    let reply = match reply {
+        Ok(reply) => reply,
+        Err(RequestTokenError::ServerResponse(error))
+            if error.error() == &BasicErrorResponseType::InvalidGrant =>
+        {
+            return Ok(TokenReply::LoginRequired {
+                invalid_client: false,
+            });
+        }
+        Err(RequestTokenError::ServerResponse(error))
+            if error.error() == &BasicErrorResponseType::InvalidClient =>
+        {
+            return Ok(TokenReply::LoginRequired {
+                invalid_client: true,
+            });
+        }
+        Err(RequestTokenError::Request(TokenHttpError::Transport(error))) => return Err(error),
+        Err(_) => match *transport.status.lock() {
+            Some(StatusCode::OK) => bail!("invalid OAuth token response (expected JSON)"),
+            Some(status) => bail!("OAuth token request failed (HTTP {status})"),
+            None => bail!("could not build OAuth token request"),
+        },
+    };
+    let access_token = reply.access_token().secret();
+    ensure!(
+        reply.token_type() == &BasicTokenType::Bearer && !access_token.is_empty(),
+        "OAuth token endpoint did not return a usable bearer token"
+    );
+    Ok(TokenReply::Granted(Token {
+        access_token: access_token.clone(),
+        refresh_token: reply.refresh_token().map(|token| token.secret().clone()),
+        expiration: reply
+            .expires_in()
+            .map(|duration| now().saturating_add(duration.as_secs())),
+    }))
+}
+
+struct TokenHttp<'a> {
+    client: &'a Client,
+    // Keep diagnostics independent of the provider's error text and response body.
+    status: Mutex<Option<StatusCode>>,
+}
+
+impl<'a> AsyncHttpClient<'a> for TokenHttp<'_> {
+    type Error = TokenHttpError;
+    type Future = Pin<Box<dyn Future<Output = Result<HttpResponse, Self::Error>> + Send + 'a>>;
+
+    fn call(&'a self, request: HttpRequest) -> Self::Future {
+        Box::pin(async move {
+            let mut request = request;
+            if let Some(header) = request
+                .headers_mut()
+                .get_mut(reqwest::header::AUTHORIZATION)
+            {
+                header.set_sensitive(true);
+            }
+            let request = request
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("invalid OAuth token request"))?;
+            let response = self
+                .client
+                .execute(request)
+                .await
+                .map_err(|_| anyhow::anyhow!("OAuth token request failed"))?;
+            let status = response.status();
+            *self.status.lock() = Some(status);
+            let headers = response.headers().clone();
+            let body = read_response_body(response).await?;
+            // oauth2 5.0 accepts trailing data and skips strings in unknown fields.
+            serde_json::from_slice::<serde_json::Value>(&body)
+                .map_err(|_| TokenHttpError::InvalidJson)?;
+            let mut reply = HttpResponse::new(body);
+            *reply.status_mut() = status;
+            *reply.headers_mut() = headers;
+            Ok(reply)
+        })
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum TokenHttpError {
+    #[error(transparent)]
+    Transport(#[from] anyhow::Error),
+    #[error("invalid OAuth token JSON response")]
+    InvalidJson,
 }
 
 enum TokenReply {
@@ -634,7 +754,12 @@ async fn http_json<T: DeserializeOwned>(response: reqwest::Response, operation: 
     read_json(response).await
 }
 
-async fn read_json<T: DeserializeOwned>(mut response: reqwest::Response) -> Result<T> {
+async fn read_json<T: DeserializeOwned>(response: reqwest::Response) -> Result<T> {
+    let data = read_response_body(response).await?;
+    serde_json::from_slice(&data).map_err(|_| anyhow::anyhow!("invalid OAuth JSON response"))
+}
+
+async fn read_response_body(mut response: reqwest::Response) -> Result<Vec<u8>> {
     let mut data = Vec::new();
     while let Some(chunk) = response
         .chunk()
@@ -647,20 +772,7 @@ async fn read_json<T: DeserializeOwned>(mut response: reqwest::Response) -> Resu
         );
         data.extend_from_slice(&chunk);
     }
-    serde_json::from_slice(&data).map_err(|_| anyhow::anyhow!("invalid OAuth JSON response"))
-}
-
-fn form_encode(input: &str) -> String {
-    let mut url = Url::parse("https://localhost/").expect("static URL");
-    url.query_pairs_mut().append_pair("", input);
-    url.query()
-        .unwrap_or_default()
-        .trim_start_matches('=')
-        .to_owned()
-}
-
-fn random_secret() -> String {
-    format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+    Ok(data)
 }
 
 fn now() -> u64 {

@@ -19,10 +19,10 @@ default = ["mcp-client"]
 mcp-client = [
     "dep:fs2",
     "dep:futures-util",
+    "dep:oauth2",
     "dep:sha2",
     "dep:sse-stream",
     "dep:subtle",
-    "reqwest/form",
     "reqwest/stream",
     "rmcp/client",
     "rmcp/transport-streamable-http-client-reqwest",
@@ -40,6 +40,7 @@ libc = "0.2"
 base64 = "0.22"
 fs2 = { version = "0.4", optional = true }
 futures-util = { version = "0.3", optional = true }
+oauth2 = { version = "5.0", default-features = false, optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
 rmcp = { version = "1.7", features = ["transport-io", "elicitation", "schemars"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
