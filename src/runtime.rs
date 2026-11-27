@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use mlua::{HookTriggers, Lua, LuaOptions, LuaSerdeExt, MultiValue, StdLib, Value, VmState};
 use parking_lot::Mutex;
 use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue, json};
@@ -491,11 +492,11 @@ impl LuaRuntime {
                         Ok(value) => {
                             Ok(MultiValue::from_vec(vec![json_value_to_lua(lua, &value)?]))
                         }
-                        Err(error) => codec_decode_error(lua, "JSON_DECODE_FAILED", error),
+                        Err(error) => codec_error(lua, "JSON_DECODE_FAILED", error),
                     },
-                    Err(error) => codec_decode_error(lua, "JSON_DECODE_FAILED", error),
+                    Err(error) => codec_error(lua, "JSON_DECODE_FAILED", error),
                 },
-                _ => codec_decode_error(
+                _ => codec_error(
                     lua,
                     "INVALID_FIELD_VALUE",
                     "json.decode: json_string must be a string",
@@ -553,11 +554,11 @@ impl LuaRuntime {
                 Value::String(text) => match text.to_str() {
                     Ok(text) => match serde_yaml::from_str::<JsonValue>(&text) {
                         Ok(value) => Ok(MultiValue::from_vec(vec![lua.to_value(&value)?])),
-                        Err(error) => codec_decode_error(lua, "YAML_DECODE_FAILED", error),
+                        Err(error) => codec_error(lua, "YAML_DECODE_FAILED", error),
                     },
-                    Err(error) => codec_decode_error(lua, "YAML_DECODE_FAILED", error),
+                    Err(error) => codec_error(lua, "YAML_DECODE_FAILED", error),
                 },
-                _ => codec_decode_error(
+                _ => codec_error(
                     lua,
                     "INVALID_FIELD_VALUE",
                     "yaml.decode: yaml_string must be a string",
@@ -565,6 +566,41 @@ impl LuaRuntime {
             })?,
         )?;
         globals.set("yaml", yaml_api)?;
+
+        let base64_api = self.lua.create_table()?;
+        base64_api.set(
+            "encode",
+            self.lua.create_function(|lua, value: Value| match value {
+                Value::String(bytes) => {
+                    let encoded = BASE64_STANDARD.encode(bytes.as_bytes());
+                    Ok(MultiValue::from_vec(vec![Value::String(
+                        lua.create_string(encoded)?,
+                    )]))
+                }
+                _ => codec_error(
+                    lua,
+                    "INVALID_FIELD_VALUE",
+                    "base64.encode: bytes must be a string",
+                ),
+            })?,
+        )?;
+        base64_api.set(
+            "decode",
+            self.lua.create_function(|lua, value: Value| match value {
+                Value::String(text) => match BASE64_STANDARD.decode(text.as_bytes()) {
+                    Ok(bytes) => Ok(MultiValue::from_vec(vec![Value::String(
+                        lua.create_string(bytes)?,
+                    )])),
+                    Err(error) => codec_error(lua, "BASE64_DECODE_FAILED", error),
+                },
+                _ => codec_error(
+                    lua,
+                    "INVALID_FIELD_VALUE",
+                    "base64.decode: text must be a string",
+                ),
+            })?,
+        )?;
+        globals.set("base64", base64_api)?;
 
         globals.set("__runtime", self.lua.create_table()?)?;
 
@@ -1091,11 +1127,7 @@ impl Drop for RawScope {
     }
 }
 
-fn codec_decode_error(
-    lua: &Lua,
-    code: &str,
-    error: impl std::fmt::Display,
-) -> mlua::Result<MultiValue> {
+fn codec_error(lua: &Lua, code: &str, error: impl std::fmt::Display) -> mlua::Result<MultiValue> {
     let details = lua.create_table()?;
     details.set("code", code)?;
     details.set("message", error.to_string())?;

@@ -208,6 +208,8 @@ Note: The async mechanism is standardized (task-based) and is described by the `
 
 The discovery cache is invalidated automatically when a snippet installs or deletes a namespace/function; there is no public invalidation API.
 
+`base64.encode(bytes)` converts a Lua byte string to standard Base64 text with padding. `base64.decode(text)` restores the original byte string from canonical Base64. The global `base64` is available in service source files and MCP pack `config.lua`, like `json`. Both functions are read-only and return a string or `nil, err`. Non-string inputs return `INVALID_FIELD_VALUE`. Malformed Base64 returns `BASE64_DECODE_FAILED`.
+
 ### 5.1 Service API Design Philosophy
 - Learn Once, Apply Everywhere - 4 fundamental patterns cover all operations
 - Compact & Clear - Minimal tokens, maximum clarity

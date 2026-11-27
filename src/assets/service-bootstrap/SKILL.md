@@ -170,6 +170,10 @@ field. Add compact named types under `types`, normally with a `shape` string.
 Keep a schema close to its public wrappers; it is both the discoverable contract
 and the enforcement boundary.
 
+Use `base64.encode(bytes)` and `base64.decode(text)` for standard padded Base64
+in service source files and MCP pack `config.lua`. Both are read-only and use
+the `core.result` contract.
+
 A minimal ordinary wrapper looks like this:
 
 ```lua

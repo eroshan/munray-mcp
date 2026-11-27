@@ -308,6 +308,8 @@ The raw CLI and command-secret implementations require exact command-name member
 
 The complete pack-facing raw and public Lua API contract is maintained in [services/SERVICE-DESIGN.mkd](services/SERVICE-DESIGN.mkd). This document records implementation and operational behavior of those facilities below. `helpers.collect` materializes only each iterator step's primary return value; `helpers.collect_tuples` is the opt-in helper for packed multi-return rows. `errutil` is intentionally internal and has no schema.
 
+The public `base64` namespace uses standard RFC 4648 Base64 with canonical padding. `base64.encode` accepts a Lua byte string and `base64.decode` returns one. Both are installed before trusted service sources load and are available in service code, MCP pack configuration, and read-only sessions. Lua strings retain arbitrary bytes inside the runtime. Encode binary results before sending them through the UTF-8 JSON interface.
+
 ### 11.2 CLI and process capture
 
 Synchronous CLI calls poll the child every 10 ms, drain stdout/stderr concurrently, and kill the immediate child on timeout. Stdout is capped at 200 MiB by default and stderr retention at 1 MiB; readers continue draining after the retained cap to avoid pipe deadlock. Child process groups are not managed, so descendants can outlive a killed parent.

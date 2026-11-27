@@ -57,6 +57,10 @@
       "status": "(task_id) -> core.result",
       "wait": "(task_id, timeout_ms?) -> core.result"
     },
+    "base64": {
+      "decode": "(text) -> core.result",
+      "encode": "(bytes) -> core.result"
+    },
     "helpers": {
       "collect": "(iterator, opts) -> core.result",
       "collect_tuples": "(iterator, opts) -> core.result",

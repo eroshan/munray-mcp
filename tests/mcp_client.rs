@@ -398,6 +398,7 @@ fn imports_paginated_tools_and_refreshes_schema_without_changing_policy() {
     assert!(catalog.get("connection").is_none());
     let edited = format!(
         r#"assert(sys.exec_mode() == "readonly")
+           assert(base64.decode(base64.encode("hello")) == "hello")
            local connection = json.decode(' {{"url":"{}/updated"}} ')
            return {{ connection = connection, tools = {{ ["get-room"] = {{ enabled = true, guarded = false }}, play = {{ enabled = false }} }} }}"#,
         server.url

@@ -108,6 +108,33 @@ if type(yaml_ns) == "table" and yaml_ns.__schema == nil then
 	}
 end
 
+if type(base64) == "table" and base64.__schema == nil then
+	base64.__schema = {
+		namespace = "base64",
+		service = "base64",
+		functions = {
+			{
+				name = "encode",
+				signature = "(bytes)",
+				returns_contract = "core.result",
+				guarded = false,
+				description = "Encode a Lua byte string as standard Base64 with padding",
+				params = { { name = "bytes", type = "string" } },
+				returns_typed = { { name = "result", type = "string" }, { name = "err", type = "core.error|nil" } },
+			},
+			{
+				name = "decode",
+				signature = "(text)",
+				returns_contract = "core.result",
+				guarded = false,
+				description = "Decode standard padded Base64 text to a Lua byte string",
+				params = { { name = "text", type = "string" } },
+				returns_typed = { { name = "result", type = "string" }, { name = "err", type = "core.error|nil" } },
+			},
+		},
+	}
+end
+
 local _discovered = nil
 local _warnings = {}
 
