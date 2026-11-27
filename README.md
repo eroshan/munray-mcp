@@ -3,7 +3,15 @@
 Rust host for a persistent Lua runtime exposed through the
 official Rust MCP SDK.
 
+Development and CI use the exact Rust version pinned in `rust-toolchain.toml`
+(currently 1.99.0), including rustfmt and Clippy. Install
+[rustup](https://rust-lang.org/tools/install/) and ensure its command shims take
+precedence over standalone Rust installations in `PATH`. Rustup selects the
+pinned toolchain automatically inside this repository.
+
 ```sh
+# Install/verify the pinned toolchain and its components.
+rustup show
 cargo build --release
 
 # Pipe Lua directly to the CLI (there is intentionally no interactive REPL).
@@ -60,6 +68,43 @@ The runtime includes schema discovery, CLI/HTTP/GraphQL transports,
 page/offset/cursor iterators, async CLI tasks, optional persistent storage,
 VFS, binary-safe CLI/HTTP blobs, execution timeouts, raw API introspection,
 and ingest. Unix ingest sockets are created with owner-only permissions.
+
+## Import tools from an external MCP server
+
+```sh
+munray svc bootstrap sonos --mcp-url "$SONOS_MCP_URL" --transport sse --oauth
+munray svc bootstrap sonos --config mcp.json --server sonos
+munray svc refresh sonos
+```
+
+Choose one bootstrap command for a new pack. Streamable HTTP is the default.
+Both remote transports support anonymous access, a bearer token from
+`--token-env`, or OAuth with PKCE. The JSON import reads `mcpServers` entries
+with `url`, `transport`, `tokenEnv`, and optional `oauth` settings
+(`clientId`, `clientSecretEnv`, `callbackUrl`, and `scope`).
+For a pre-registered OAuth client, use `--oauth-client-id`,
+`--oauth-callback-url`, and, if needed, `--oauth-client-secret-env`.
+
+The pack's `config.lua` stores the remote URL and connection settings under
+`connection` and the tool policy under `tools`. Each imported tool starts
+enabled and guarded. In `config.lua`,
+remove an entry or set `enabled = false` to hide it. Set `guarded = false`
+only for an operation you want available through read-only scripts.
+`schema("sonos")` exposes the Lua names and advertised input and output JSON
+schemas. Pass an argument table to the Lua function. A successful result
+contains the MCP `content` and, when provided, `structuredContent`.
+
+`svc refresh` updates the catalog and reports new tools for opt-in through
+`config.lua`. Catalog and policy changes take effect in new Lua sessions.
+
+OAuth uses one account per pack and opens the browser for initial or renewed
+authorization. `--no-browser` prints the authorization link to stderr. A
+headless installation can use a fixed loopback callback port and forward it to
+the browser machine. Tokens and client registration are stored outside the
+pack in `$MUNRAY_MCP_HOME/mcp-auth`, overridable with
+`MUNRAY_MCP_AUTH_DIR`. Credentials are stored as unencrypted JSON in
+owner-only files on Unix.
+Build with `--no-default-features` to omit the remote MCP client.
 
 ## Configuration
 

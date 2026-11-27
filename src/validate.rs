@@ -280,6 +280,8 @@ fn structural_function(ns: &str, i: usize, value: &Value, issues: &mut Vec<Issue
         "returns_typed",
         "yields",
         "params",
+        "input_schema",
+        "output_schema",
         "async",
         "examples",
         "origin",
@@ -332,6 +334,16 @@ fn structural_function(ns: &str, i: usize, value: &Value, issues: &mut Vec<Issue
     }
     if !f.get("guarded").is_some_and(Value::is_boolean) {
         issue(issues, ns, &format!("{p}/guarded"), "must be a boolean");
+    }
+    for field in ["input_schema", "output_schema"] {
+        if f.get(field).is_some_and(|schema| !schema.is_object()) {
+            issue(
+                issues,
+                ns,
+                &format!("{p}/{field}"),
+                "must be a JSON Schema object",
+            );
+        }
     }
     if !f.get("returns_typed").is_some_and(Value::is_array)
         || f.get("returns_typed")
@@ -578,10 +590,8 @@ fn contract(ns: &str, full: &str, f: &Map<String, Value>, out: &mut Vec<Issue>) 
 }
 fn type_fields(f: &Map<String, Value>) -> Vec<&str> {
     let mut v = Vec::new();
-    for k in ["yields"] {
-        if let Some(x) = f.get(k).and_then(Value::as_str) {
-            v.push(x)
-        }
+    if let Some(x) = f.get("yields").and_then(Value::as_str) {
+        v.push(x)
     }
     for p in f
         .get("params")

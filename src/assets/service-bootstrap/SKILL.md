@@ -15,6 +15,13 @@ design documents.
 - A service pack is **trusted host code**, not a sandboxed plugin. Never fetch,
   generate, or execute untrusted Lua. Never log, print, return, or persist raw
   secrets.
+- MCP user scripts have a restricted environment distinct from trusted pack
+  code. Their session-local `os` table exposes only `os.date(format?, time?)`
+  with standard Lua semantics, in both read-only and guarded calls. For example,
+  `os.date("!%Y-%m-%dT%H:%M:%SZ")` formats the current UTC datetime. All other
+  `os` functions, including `time`, `getenv`, and `execute`, remain unavailable
+  to user scripts. Snippet save/delete rebuilds the table. Never expose trusted
+  library tables through public APIs.
 - Keep loading side-effect free. Do not make network calls, resolve credentials,
   or run commands while `src/init.lua` or another module is loading.
 - Public operations are stateless: pass identifiers, filters, configuration, and
@@ -43,6 +50,24 @@ design documents.
   these CLI options have been exhausted.
 
 ## Pack layout and load order
+
+If this pack contains `mcp-catalog.json`, it was generated from an external
+MCP server. Edit `config.lua` to set the URL and authorization under
+`connection` and enable, disable, or remove entries under `tools` by their
+original MCP names. The entrypoint builds the Lua schema and calls
+`sys.mcp.auth` and `sys.mcp.tool_call` explicitly. Use `guarded = false` for tools explicitly allowed in
+read-only Lua scripts. Refresh definitions with `munray svc refresh <name>`,
+then create a new Lua session to load the catalog and policy. New tools appear
+after you add their policy entries.
+
+The config can use trusted core Lua APIs such as `json.decode` and `sys.*`.
+Refresh evaluates it without loading other service packs and uses the normal
+store path resolution for persistent values read through `kv.get`.
+
+Generated functions accept an argument table. Use `schema("<name>")` for the
+Lua names and original `input_schema` and optional `output_schema`. The
+returned `result` contains MCP `content` and any `structuredContent`. Keep
+the generated entrypoint and keep OAuth credentials outside the pack.
 
 A bootstrapped pack has this layout:
 

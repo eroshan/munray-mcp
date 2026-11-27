@@ -303,7 +303,7 @@ fn saved_mcp_snippets_capture_the_public_session_environment() {
     let saved = exchange(
         &mut stdin,
         &mut stdout,
-        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"runGuardedLuaScript","arguments":{"code":"assert(snippets.save({namespace='probe',name='environment',code='function() return os == nil and sys == nil end'})); return probe.environment()","session_id":"snippet-environment"}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"runGuardedLuaScript","arguments":{"code":"assert(snippets.save({namespace='probe',name='environment',code='function() return os.getenv == nil and sys == nil and os.date(\"!%Y\", 0) == \"1970\" end'})); return probe.environment()","session_id":"snippet-environment"}}}),
     );
     let saved_payload: Value =
         serde_json::from_str(saved["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
