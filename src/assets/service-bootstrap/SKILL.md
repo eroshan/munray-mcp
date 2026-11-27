@@ -92,6 +92,9 @@ A bootstrapped pack has this layout:
 file. Other source files load in lexical order. Define the service root and
 public namespace tables in `init.lua`; implement wrappers in neighboring files.
 
+The configured service directory can contain a symbolic link to the pack.
+Munray uses the link name to select and list the pack.
+
 The service name and root Lua namespace must start with a lowercase ASCII letter
 and then use only lowercase ASCII letters, digits, or underscores. Keep the
 service name in sync across directory name, root table, and schema `service`.

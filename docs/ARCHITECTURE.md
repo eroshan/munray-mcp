@@ -179,6 +179,8 @@ The service-pack layout, loading contract, schema metadata, examples, and public
 
 The loader records accepted pack directories and nested `init.lua` modules for `validate` reporting. MCP initialization appends non-empty `__intro` strings from successfully loaded packs under **Available service integrations**. Dynamic snippet changes invalidate capability discovery, so the next `ctx_init()`, `schema()`, or `examples()` observes the current snippet functions.
 
+The runtime loader, `svc list`, and bulk `svc bootstrap --update` use the same directory discovery. Discovery follows links to service pack directories and uses each link's name and path in the configured directory.
+
 `schema(target, ...)` accepts exact namespace or function paths. Namespace responses include sorted, fully qualified descendant names in `nested_namespaces` when present. Function responses contain one descriptor and the namespace-local types referenced by that function, including dependencies of those types. A multi-target call returns schemas keyed by path. A failed lookup returns `(nil, err)` for the call.
 
 ## 8. MCP request lifecycle
