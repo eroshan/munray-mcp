@@ -3,7 +3,7 @@ use mcp_server::runtime::{ExecutionMode, LuaRuntime};
 #[test]
 fn vfs_roundtrips_text_and_preserves_session_files() {
     let runtime = LuaRuntime::new(None).unwrap();
-    runtime.execute("local info, err = vfs.write_text('reports/a.txt', 'abcdef'); if err then error(err.message) end; return info.size", ExecutionMode::Guarded, "<test>").unwrap();
+    runtime.execute("local info, err = vfs.write_text('reports/a.txt', 'abcdef'); if err then error(err.message) end; return info.size", ExecutionMode::ReadOnly, "<test>").unwrap();
     let result = runtime.execute("local text, err = vfs.read_text('reports/a.txt', {offset=2, max_bytes=3}); if err then error(err.message) end; return text", ExecutionMode::ReadOnly, "<test>").unwrap();
     assert_eq!(result.result, "cde");
 }
@@ -14,9 +14,7 @@ fn vfs_leading_slashes_are_vfs_relative() {
     let result = runtime
         .execute(
             r#"
-                local ok, err = vfs.mkdirp('/reports')
-                if err then error(err.message) end
-                ok, err = vfs.ensure_parent('/reports/nested/a.txt')
+                local ok, err = vfs.mkdirp('/reports/nested')
                 if err then error(err.message) end
                 local info, write_err = vfs.write_text('/reports/nested/a.txt', 'contents')
                 if write_err then error(write_err.message) end
@@ -43,24 +41,11 @@ fn vfs_leading_slashes_are_vfs_relative() {
 
 #[test]
 fn vfs_rejects_path_traversal() {
-    let runtime = LuaRuntime::new(None).unwrap();
-    let result = runtime
-        .execute(
-            "local value, err = vfs.write_text('../escape', 'no'); return err.code",
-            ExecutionMode::Guarded,
-            "<test>",
-        )
-        .unwrap();
-    assert_eq!(result.result, "VFS_ERROR");
-}
-
-#[test]
-fn vfs_mutations_and_expose_require_guarded_mode() {
-    let runtime = LuaRuntime::new(None).unwrap();
+    let runtime = LuaRuntime::new_session(None).unwrap();
     for operation in [
-        "vfs.mkdirp('dir')",
-        "vfs.ensure_parent('dir/a.txt')",
-        "vfs.write_text('a.txt', 'x')",
+        "vfs.mkdirp('../escape')",
+        "vfs.write_text('../escape', 'no')",
+        "vfs.remove('../escape')",
     ] {
         let result = runtime
             .execute(
@@ -69,21 +54,69 @@ fn vfs_mutations_and_expose_require_guarded_mode() {
                 "<test>",
             )
             .unwrap();
-        assert_eq!(result.result, "GUARDED_TOOL_REQUIRED");
+        assert_eq!(result.result, "VFS_ERROR");
     }
+}
+
+#[test]
+fn vfs_rejects_removing_root_and_preserves_files() {
+    let runtime = LuaRuntime::new_session(None).unwrap();
     runtime
         .execute(
-            "vfs.write_text('a.txt', 'x')",
-            ExecutionMode::Guarded,
-            "<test>",
+            r#"
+            local file = "reports/nested/a.txt"
+            assert(vfs.write_text(file, "contents"))
+            for _, root in ipairs({".", "./", "/.", "././"}) do
+                local removed, err = vfs.remove(root)
+                assert(removed == nil and err and err.code == "VFS_ERROR", root)
+                assert(vfs.read_text(file) == "contents", root)
+            end
+            "#,
+            ExecutionMode::ReadOnly,
+            "<vfs-root-removal>",
         )
         .unwrap();
+}
+
+#[test]
+fn vfs_removes_subtrees_addressed_with_trailing_dots() {
+    let runtime = LuaRuntime::new_session(None).unwrap();
+    runtime
+        .execute(
+            r#"
+            assert(vfs.write_text("keep.txt", "untouched"))
+            for _, directory in ipairs({"reports/.", "reports/./", "./reports//./"}) do
+                assert(vfs.write_text("reports/nested/a.txt", "contents"))
+                local removed, err = vfs.remove(directory)
+                assert(removed, err and err.message or directory)
+                assert(vfs.stat("reports") == nil, directory)
+            end
+            assert(not vfs.remove("keep.txt/."))
+            assert(vfs.read_text("keep.txt") == "untouched")
+            "#,
+            ExecutionMode::ReadOnly,
+            "<vfs-directory-alias-removal>",
+        )
+        .unwrap();
+}
+
+#[test]
+fn vfs_schema_only_guards_expose() {
+    let runtime = LuaRuntime::new_session(None).unwrap();
     let result = runtime
         .execute(
-            "local value, err = vfs.expose({'a.txt'}); return err.code",
+            r#"
+            local guarded = {}
+            for _, fn in ipairs(schema("vfs").functions) do
+                if fn.guarded then table.insert(guarded, fn.name) end
+            end
+            local _, err = schema("vfs.ensure_parent")
+            assert(vfs.ensure_parent == nil and err.code == "NOT_FOUND")
+            return guarded
+            "#,
             ExecutionMode::ReadOnly,
             "<test>",
         )
         .unwrap();
-    assert_eq!(result.result, "GUARDED_TOOL_REQUIRED");
+    assert_eq!(result.result, serde_json::json!(["expose"]));
 }

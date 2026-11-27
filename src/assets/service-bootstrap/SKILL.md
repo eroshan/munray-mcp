@@ -244,8 +244,9 @@ primitive from `munray sys list --format markdown`:
   environment variable directly in pack code.
 - **Binary responses:** use `sys.blob.*` and write opaque blobs with
   `sys.vfs.write_blob`; never coerce blob bytes to Lua strings.
-- **VFS:** use only safe relative VFS paths. VFS is runtime-local scratch
-  storage, not a durable service data store.
+- **VFS:** use safe relative paths for runtime-local scratch storage.
+  `vfs.write_text` creates missing parent directories. `vfs.expose` requires
+  guarded mode and creates host-visible copies.
 
 The active caller deadline limits transport work. Set a transport timeout only
 when the upstream operation needs a smaller bound; it cannot extend the caller

@@ -406,11 +406,11 @@ The bounded command registry is pruned when a runtime drops; stale weak-allowlis
 
 Each runtime owns a temporary VFS root. VFS paths must be non-empty and free of parent/root/prefix components after leading `/` characters are discarded; therefore `/logs/job.txt` is equivalent to `logs/job.txt`. They are limited to ASCII alphanumerics plus `.`, `_`, `/`, and `-`.
 
-The VFS provides directory creation/removal, text/blob writes, text reads, metadata, recursive/nonrecursive listing, ZIP extraction/previews, and exposure bundles. Directory, removal, and text-write mutations (`mkdirp`, `ensure_parent`, `remove`, and `write_text`) and `vfs.expose` are guarded operations; reads and inspection remain read-only.
+The VFS provides directory creation/removal, text/blob writes, text reads, metadata, recursive/nonrecursive listing, ZIP extraction/previews, and exposure bundles. Scripts in read-only mode can create directories, write text, and remove files or directory trees in their runtime's VFS. `vfs.remove` rejects paths that resolve to the VFS root before any deletion. `vfs.write_text` creates missing parent directories. `vfs.expose` requires guarded mode because it creates host-visible copies outside the VFS root.
 
 ZIP conversion uses the in-process `zip` reader. It rejects unsafe paths and enforces 1,000 entries, 100 MiB expanded bytes, a 100:1 compression-ratio limit, the active execution deadline between entries, preview limits, and the runtime VFS quota. Exposure bundles remain alive until the runtime drops.
 
-Blob bytes are held in an in-memory map and represented in Lua by userdata. The default per-capture limit is 200 MiB and a runtime-wide 512 MiB aggregate cap returns `BLOB_QUOTA_EXCEEDED`. Each capture reserves its bounded buffer from that aggregate before CLI/HTTP bytes are read, so caller-controlled limits cannot allocate beyond the quota before rejection. VFS writes and ZIP extraction enforce a 512 MiB aggregate cap and return `VFS_QUOTA_EXCEEDED`; guarded `vfs.remove` reclaims VFS quota, and all runtime-local VFS/blob state is released at runtime teardown.
+Blob bytes are held in an in-memory map and represented in Lua by userdata. The default per-capture limit is 200 MiB and a runtime-wide 512 MiB aggregate cap returns `BLOB_QUOTA_EXCEEDED`. Each capture reserves its bounded buffer from that aggregate before CLI/HTTP bytes are read, so caller-controlled limits cannot allocate beyond the quota before rejection. VFS writes and ZIP extraction enforce a 512 MiB aggregate cap and return `VFS_QUOTA_EXCEEDED`. `vfs.remove` reclaims VFS quota, and all runtime-local VFS/blob state is released at runtime teardown.
 
 ### 11.7 Ingest and local IPC
 
@@ -422,7 +422,7 @@ The protocol is:
 2. exactly that many payload bytes; and
 3. one JSON response line.
 
-Payloads are limited to 64 MiB and must be UTF-8. The target session must already exist. The text is written below that runtime's VFS and associated with a random `ing_<32 hex>` token. Tokens are session-local and repeatable until the runtime is dropped.
+Payloads are limited to 64 MiB and must be UTF-8. The target session must already exist. The text is written below that runtime's VFS and associated with a random `ing_<32 hex>` token. Each call to `ingest.get` in that session reads the current contents of the VFS file. Scripts can edit or remove the file using the VFS APIs.
 
 The listener uses detached native threads. Dropping its guard removes the socket path but does not provide a coordinated thread-shutdown protocol.
 

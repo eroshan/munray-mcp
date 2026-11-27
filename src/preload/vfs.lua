@@ -21,8 +21,8 @@ end
 vfs.__schema = {
 	namespace = "vfs",
 	service = "core",
-	description = "Virtual filesystem (VFS) for scratch storage. Backed by opaque OS temp directories, runtime-local, sandboxed. Directory and text-write mutations, plus expose, require guarded mode.",
-	usage_hint = "Sandboxed runtime-local VFS, not host filesystem. Paths are VFS-relative; use vfs.expose() for host-visible temp copies.",
+	description = "Runtime-local virtual filesystem for scratch storage. Exposing files as host-visible copies requires guarded mode.",
+	usage_hint = "Use VFS-relative paths for scratch storage. Use guarded vfs.expose() for host-visible temporary copies.",
 	types = {
 		FileInfo = { shape = "{path:string, size:number, is_dir:boolean}" },
 		ToTextResult = { shape = "{kind:string, extracted_dir:string, summary:string, files:table}" },
@@ -34,17 +34,8 @@ vfs.__schema = {
 			name = "mkdirp",
 			signature = "(path)",
 			returns_contract = "core.result",
-			guarded = true,
-			description = "Create directory and all parents in VFS (requires guarded mode)",
-			params = { { name = "path", type = "string" } },
-			returns_typed = { { name = "result", type = "boolean" }, { name = "err", type = "core.error|nil" } },
-		},
-		{
-			name = "ensure_parent",
-			signature = "(path)",
-			returns_contract = "core.result",
-			guarded = true,
-			description = "Ensure the parent directory of a file path exists (requires guarded mode)",
+			guarded = false,
+			description = "Create a directory and its parents in VFS",
 			params = { { name = "path", type = "string" } },
 			returns_typed = { { name = "result", type = "boolean" }, { name = "err", type = "core.error|nil" } },
 		},
@@ -52,8 +43,8 @@ vfs.__schema = {
 			name = "remove",
 			signature = "(path)",
 			returns_contract = "core.result",
-			guarded = true,
-			description = "Remove a VFS file or directory tree to reclaim runtime quota (requires guarded mode)",
+			guarded = false,
+			description = "Remove a VFS file or directory tree to reclaim runtime quota",
 			params = { { name = "path", type = "string" } },
 			returns_typed = { { name = "removed", type = "boolean" }, { name = "err", type = "core.error|nil" } },
 		},
@@ -61,8 +52,8 @@ vfs.__schema = {
 			name = "write_text",
 			signature = "(path, text, opts?)",
 			returns_contract = "core.result",
-			guarded = true,
-			description = "Write text content to a VFS file (requires guarded mode). Options: overwrite (default true)",
+			guarded = false,
+			description = "Write text to a VFS file, creating parent directories as needed. Overwrite defaults to true.",
 			params = {
 				{ name = "path", type = "string" },
 				{ name = "text", type = "string" },
@@ -161,18 +152,6 @@ end
 -- vfs.mkdirp(path) -> (true|nil, err)
 function vfs.mkdirp(path)
 	return sys.vfs.mkdirp(path)
-end
-
--- vfs.ensure_parent(path) -> (true|nil, err)
--- Ensures the parent directory of a file path exists
-function vfs.ensure_parent(path)
-	-- Extract parent directory from path
-	local parent = string.match(path, "^(.+)/[^/]+$")
-	if parent == nil then
-		-- No parent directory (file is at root level)
-		return true, nil
-	end
-	return sys.vfs.mkdirp(parent)
 end
 
 -- vfs.remove(path) -> (removed|nil, err)

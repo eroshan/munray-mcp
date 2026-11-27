@@ -39,7 +39,7 @@
       "MANDATORY: Cache reusable results in the current session and reuse them; re-fetch only when the source may have changed."
     ],
     "namespaces": {
-      "vfs": "Sandboxed runtime-local VFS, not host filesystem. Paths are VFS-relative; use vfs.expose() for host-visible temp copies."
+      "vfs": "Use VFS-relative paths for scratch storage. Use guarded vfs.expose() for host-visible temporary copies."
     }
   },
   "iter_helpers": [
@@ -98,15 +98,14 @@
       "save": "({namespace:string, name:string, code:string, ...})* -> core.result"
     },
     "vfs": {
-      "ensure_parent": "(path)* -> core.result",
       "expose": "(paths)* -> core.result",
       "ls": "(path, opts?) -> core.result",
-      "mkdirp": "(path)* -> core.result",
+      "mkdirp": "(path) -> core.result",
       "read_text": "(path, opts?) -> core.result",
-      "remove": "(path)* -> core.result",
+      "remove": "(path) -> core.result",
       "stat": "(path) -> core.result",
       "to_txt": "(path, opts?) -> core.result",
-      "write_text": "(path, text, opts?)* -> core.result"
+      "write_text": "(path, text, opts?) -> core.result"
     },
     "yaml": {
       "decode": "(yaml_string) -> core.result",

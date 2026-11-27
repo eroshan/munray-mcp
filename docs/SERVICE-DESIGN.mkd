@@ -415,6 +415,7 @@ Use `munray sys list` for the runtime-reflected primitive catalog. Its default i
 - Ingest (core/internal):
   - `sys.ingest.get(token) -> (text|nil, err)`
   - Used by the core `ingest.get(token)` wrapper to read UTF-8 text previously uploaded into the current MCP session via `munray ingest`.
+  - Reads the current contents of the backing VFS file, which scripts can edit or remove.
   - Not intended as a general service-pack transport primitive.
 - Test helper (test/validation only):
   - `sys.test.set_mode("readonly"|"guarded") -> true`
@@ -443,6 +444,7 @@ Raw primitives:
 - `sys.vfs.mkdirp(path) -> (true|nil, err)`
 - `sys.vfs.remove(path) -> (removed|nil, err)`
 - `sys.vfs.write_text(path, text, opts?) -> (info|nil, err)`
+  - Creates missing parent directories.
   - `opts`: `{ overwrite?: boolean }` (default true)
 - `sys.vfs.write_blob(path, blob, opts?) -> (info|nil, err)`
   - `opts`: `{ overwrite?: boolean }` (default true)
@@ -461,13 +463,15 @@ Raw primitives:
 Convenience wrappers (core preload):
 
 - `vfs.mkdirp(path)`
-- `vfs.ensure_parent(path)`
+- `vfs.remove(path)`
 - `vfs.write_text(path, text, opts?)`
 - `vfs.read_text(path, opts?)`
 - `vfs.ls(path, opts?)`
 - `vfs.stat(path)`
 - `vfs.to_txt(path, opts?)`
 - `vfs.expose(paths)`
+
+`vfs.expose(paths)` requires guarded mode. Read-only MCP scripts can use the other `vfs.*` helpers to manage scratch files within their runtime.
 
 Service packs should generally prefer stable core primitives when available (for example `sys.secrets.*`, `sys.auth.*`, and `async_task.status`/`async_task.result`/`async_task.wait`).
 

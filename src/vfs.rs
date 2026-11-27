@@ -114,8 +114,23 @@ pub(crate) fn register(
                 Ok(path) => path,
                 Err(error) => return lua_error(lua, "VFS_ERROR", error, false),
             };
+            if resolved == vfs_root.path() {
+                return lua_error(lua, "VFS_ERROR", "cannot remove the VFS root".into(), false);
+            }
             let result = match fs::metadata(&resolved) {
-                Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(&resolved),
+                Ok(metadata) if metadata.is_dir() => {
+                    // A trailing `.` can make removal fail after clearing the directory.
+                    let directory: PathBuf = resolved.components().collect();
+                    fs::remove_dir_all(directory)
+                }
+                Ok(_) if path.ends_with('/') || path.ends_with("/.") => {
+                    return lua_error(
+                        lua,
+                        "VFS_ERROR",
+                        "VFS path does not name a directory".into(),
+                        false,
+                    );
+                }
                 Ok(_) => fs::remove_file(&resolved),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     return Ok((Value::Boolean(false), Value::Nil));

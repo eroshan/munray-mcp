@@ -341,22 +341,48 @@ fn mcp_hides_raw_calls_from_session_code() {
 }
 
 #[test]
-fn vfs_mutation_is_blocked_in_read_only_mcp_mode() {
+fn read_only_mcp_enforces_vfs_exposure_policy() {
+    let temp = tempfile::tempdir().unwrap();
     let input = [
         line(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}})),
         line(json!({
             "jsonrpc":"2.0", "id":2, "method":"tools/call",
-            "params":{"name":"runLuaScript","arguments":{"code":"local ok, err = vfs.write_text('proof.txt', 'ok'); if err then return err.code end; return ok"}}
+            "params":{"name":"runLuaScript","arguments":{"code":r#"
+                assert(vfs.mkdirp('reports/nested'))
+                assert(vfs.stat('reports/nested').is_dir)
+                local path = 'reports/nested/proof.txt'
+                assert(vfs.write_text(path, 'ok'))
+                local text = assert(vfs.read_text(path))
+                local exposed, err = vfs.expose({path})
+                assert(exposed == nil)
+                assert(vfs.remove('reports'))
+                return {text = text, exposure_error = err.code, removed = vfs.stat(path) == nil}
+            "#}}
         })),
     ]
     .concat();
-    Command::cargo_bin(env!("CARGO_PKG_NAME"))
+    let output = Command::cargo_bin(env!("CARGO_PKG_NAME"))
         .unwrap()
+        .arg("--svc-dir")
+        .arg(temp.path())
+        .arg("--store-path")
+        .arg(temp.path().join("store.db"))
         .arg("mcp")
         .write_stdin(input)
         .assert()
-        .success()
-        .stdout(predicates::str::contains("GUARDED_TOOL_REQUIRED"));
+        .success();
+    let response = String::from_utf8_lossy(&output.get_output().stdout)
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|response| response["id"] == 2)
+        .unwrap();
+    let payload: Value =
+        serde_json::from_str(response["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(payload["error"], Value::Null);
+    assert_eq!(
+        payload["result"],
+        json!({"text": "ok", "exposure_error": "GUARDED_TOOL_REQUIRED", "removed": true})
+    );
 }
 
 #[test]
